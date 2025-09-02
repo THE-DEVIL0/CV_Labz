@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
-import { Loader2, FileText, Mail, Plus, CheckCircle, Lightbulb, Info } from 'lucide-react'
+import { Loader2, FileText, Mail, Plus, CheckCircle, Lightbulb, Info, Trash2 } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
 
 export default function CVBuilder() {
   // Personal Information State
@@ -21,17 +22,17 @@ export default function CVBuilder() {
   // CV Content State
   const [cvRole, setCvRole] = useState('general')
   const [summary, setSummary] = useState('')
-  const [skills, setSkills] = useState('')
-  
+  const [skills, setSkills] = useState([])
+
   // Dynamic Entries State
   const [experiences, setExperiences] = useState([])
   const [education, setEducation] = useState([])
   const [certifications, setCertifications] = useState([])
-  
+
   // Cover Letter State
   const [coverRole, setCoverRole] = useState('general')
   const [coverText, setCoverText] = useState('')
-  
+
   // Feedback State
   const [feedbacks, setFeedbacks] = useState({})
   const [loadingStates, setLoadingStates] = useState({})
@@ -56,7 +57,7 @@ export default function CVBuilder() {
 
   // Debounced analysis function
   const analyzeText = useCallback(async (fieldId, text, role, type) => {
-    if (!text.trim() || !manualChanges.current[fieldId]) {
+    if (!text.trim()) {
       setFeedbacks(prev => ({ ...prev, [fieldId]: null }))
       return
     }
@@ -65,47 +66,110 @@ export default function CVBuilder() {
     setAppliedStates(prev => ({ ...prev, [fieldId]: false }))
 
     try {
-      const response = await fetch('http://localhost:5000/analyze', {
+      const response = await fetch('https://triumphant-perception-production.up.railway.app/cv/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, role, type })
       })
-      
+
       const data = await response.json()
       setFeedbacks(prev => ({ ...prev, [fieldId]: data }))
     } catch (error) {
-      setFeedbacks(prev => ({ 
-        ...prev, 
-        [fieldId]: { 
-          feedback: 'Error analyzing text', 
-          suggestion: '', 
-          additional_suggestions: [], 
+      setFeedbacks(prev => ({
+        ...prev,
+        [fieldId]: {
+          feedback: 'Error analyzing text',
+          suggestion: '',
+          additional_suggestions: [],
           formatted: '',
           error: error instanceof Error ? error.message : 'Unknown error'
         }
       }))
     } finally {
       setLoadingStates(prev => ({ ...prev, [fieldId]: false }))
-      manualChanges.current[fieldId] = false // Reset after analysis
+      if (fieldId.startsWith('exp-')) {
+        const id = parseInt(fieldId.slice(4))
+        manualChanges.current.experiences[id] = false
+      } else if (fieldId.startsWith('edu-')) {
+        const id = parseInt(fieldId.slice(4))
+        manualChanges.current.education[id] = false
+      } else {
+        manualChanges.current[fieldId] = false
+      }
     }
   }, [])
 
-  // Handle text changes and track manual edits
+  // Handle text changes for string fields
   const handleTextChange = (fieldId, value, setter, type) => {
     setter(value);
     manualChanges.current[fieldId] = true;
     const role = type === 'cover' ? coverRole : cvRole;
-    
-    // Clear any existing timeout for this field
+
     if (timeouts.current[fieldId]) {
       clearTimeout(timeouts.current[fieldId]);
     }
-    
-    // Set new timeout for analysis
+
     timeouts.current[fieldId] = setTimeout(() => {
       analyzeText(fieldId, value, role, type);
     }, 600);
   };
+
+  // Functions for experiences
+  const addBulletToExp = (id) => {
+    setExperiences(prev => prev.map(exp =>
+      exp.id === id ? { ...exp, bullets: [...exp.bullets, ''] } : exp
+    ))
+  }
+
+  const updateExpBullet = (id, idx, value) => {
+    setExperiences(prev => prev.map(exp =>
+      exp.id === id ? { ...exp, bullets: exp.bullets.map((b, i) => i === idx ? value : b) } : exp
+    ))
+    manualChanges.current.experiences[id] = true
+  }
+
+  const removeExpBullet = (id, idx) => {
+    setExperiences(prev => prev.map(exp =>
+      exp.id === id ? { ...exp, bullets: exp.bullets.filter((_, i) => i !== idx) } : exp
+    ))
+    manualChanges.current.experiences[id] = true
+  }
+
+  // Functions for education
+  const addDetailToEdu = (id) => {
+    setEducation(prev => prev.map(edu =>
+      edu.id === id ? { ...edu, details: [...edu.details, ''] } : edu
+    ))
+  }
+
+  const updateEduDetail = (id, idx, value) => {
+    setEducation(prev => prev.map(edu =>
+      edu.id === id ? { ...edu, details: edu.details.map((d, i) => i === idx ? value : d) } : edu
+    ))
+    manualChanges.current.education[id] = true
+  }
+
+  const removeEduDetail = (id, idx) => {
+    setEducation(prev => prev.map(edu =>
+      edu.id === id ? { ...edu, details: edu.details.filter((_, i) => i !== idx) } : edu
+    ))
+    manualChanges.current.education[id] = true
+  }
+
+  // Functions for skills
+  const addSkill = () => {
+    setSkills([...skills, ''])
+  }
+
+  const updateSkill = (idx, value) => {
+    setSkills(skills.map((s, i) => i === idx ? value : s))
+    manualChanges.current.skills = true
+  }
+
+  const removeSkill = (idx) => {
+    setSkills(skills.filter((_, i) => i !== idx))
+    manualChanges.current.skills = true
+  }
 
   // Debounced effect for analysis
   useEffect(() => {
@@ -118,30 +182,36 @@ export default function CVBuilder() {
       }, 600)
     }
 
-    // Only analyze if there was a manual change
-    if (manualChanges.current.summary && summary) {
+    // Summary and cover
+    if (manualChanges.current.summary && summary.trim()) {
       scheduleAnalysis('summary', summary, cvRole, 'summary')
     }
-    
-    if (manualChanges.current.skills && skills) {
-      scheduleAnalysis('skills', skills, cvRole, 'skills')
-    }
-    
-    if (manualChanges.current.cover && coverText) {
+
+    if (manualChanges.current.cover && coverText.trim()) {
       scheduleAnalysis('cover', coverText, coverRole, 'cover')
     }
 
+    // Skills
+    const skillsText = skills.join('\n')
+    if (manualChanges.current.skills && skillsText.trim()) {
+      scheduleAnalysis('skills', skillsText, cvRole, 'skills')
+    }
+
+    // Experiences
     experiences.forEach(exp => {
       const fieldId = `exp-${exp.id}`
-      if (manualChanges.current.experiences[exp.id] && exp.bullets) {
-        scheduleAnalysis(fieldId, exp.bullets, cvRole, 'experience')
+      const expText = exp.bullets.join('\n')
+      if (manualChanges.current.experiences[exp.id] && expText.trim()) {
+        scheduleAnalysis(fieldId, expText, cvRole, 'experience')
       }
     })
 
+    // Education
     education.forEach(edu => {
       const fieldId = `edu-${edu.id}`
-      if (manualChanges.current.education[edu.id] && edu.details) {
-        scheduleAnalysis(fieldId, edu.details, cvRole, 'education')
+      const eduText = edu.details.join('\n')
+      if (manualChanges.current.education[edu.id] && eduText.trim()) {
+        scheduleAnalysis(fieldId, eduText, cvRole, 'education')
       }
     })
 
@@ -150,13 +220,49 @@ export default function CVBuilder() {
     }
   }, [summary, skills, coverText, experiences, education, cvRole, coverRole, analyzeText])
 
-  // Apply suggestion function
-  const applySuggestion = (fieldId, content, targetSetter) => {
-    targetSetter(content)
+  // Parse markdown or text to list
+  const parseToList = (text) => {
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+    return lines.map(line => line.replace(/^[-*]\s*/, ''))
+  }
+
+  // Apply content function
+  const applyContent = (fieldId, content) => {
+    const isListField = fieldId === 'skills' || fieldId.startsWith('exp-') || fieldId.startsWith('edu-')
+    const value = isListField ? parseToList(content) : content
+
+    if (fieldId === 'summary') {
+      setSummary(value)
+    } else if (fieldId === 'cover') {
+      setCoverText(value)
+    } else if (fieldId === 'skills') {
+      setSkills(value)
+    } else if (fieldId.startsWith('exp-')) {
+      const id = parseInt(fieldId.slice(4))
+      setExperiences(prev => prev.map(exp =>
+        exp.id === id ? { ...exp, bullets: value } : exp
+      ))
+    } else if (fieldId.startsWith('edu-')) {
+      const id = parseInt(fieldId.slice(4))
+      setEducation(prev => prev.map(edu =>
+        edu.id === id ? { ...edu, details: value } : edu
+      ))
+    }
+
     setAppliedStates(prev => ({ ...prev, [fieldId]: true }))
-    // Clear the feedback immediately
     setFeedbacks(prev => ({ ...prev, [fieldId]: null }))
-    // Don't set manualChanges to true here to prevent re-analysis
+
+    // Reset manual change
+    if (fieldId.startsWith('exp-')) {
+      const id = parseInt(fieldId.slice(4))
+      manualChanges.current.experiences[id] = false
+    } else if (fieldId.startsWith('edu-')) {
+      const id = parseInt(fieldId.slice(4))
+      manualChanges.current.education[id] = false
+    } else {
+      manualChanges.current[fieldId] = false
+    }
+
     setTimeout(() => {
       setAppliedStates(prev => ({ ...prev, [fieldId]: false }))
     }, 2000)
@@ -166,33 +272,27 @@ export default function CVBuilder() {
   const addExperience = () => {
     const newId = expCounter + 1
     setExpCounter(newId)
-    setExperiences(prev => [...prev, { id: newId, title: '', company: '', dates: '', bullets: '' }])
+    setExperiences(prev => [...prev, { id: newId, title: '', company: '', dates: '', bullets: [] }])
     manualChanges.current.experiences[newId] = false
   }
 
   const updateExperience = (id, field, value) => {
-    setExperiences(prev => prev.map(exp => 
+    setExperiences(prev => prev.map(exp =>
       exp.id === id ? { ...exp, [field]: value } : exp
     ))
-    if (field === 'bullets') {
-      manualChanges.current.experiences[id] = true
-    }
   }
 
   const addEducation = () => {
     const newId = eduCounter + 1
     setEduCounter(newId)
-    setEducation(prev => [...prev, { id: newId, degree: '', school: '', dates: '', details: '' }])
+    setEducation(prev => [...prev, { id: newId, degree: '', school: '', dates: '', details: [] }])
     manualChanges.current.education[newId] = false
   }
 
   const updateEducation = (id, field, value) => {
-    setEducation(prev => prev.map(edu => 
+    setEducation(prev => prev.map(edu =>
       edu.id === id ? { ...edu, [field]: value } : edu
     ))
-    if (field === 'details') {
-      manualChanges.current.education[id] = true
-    }
   }
 
   const addCertification = () => {
@@ -202,67 +302,133 @@ export default function CVBuilder() {
   }
 
   const updateCertification = (id, field, value) => {
-    setCertifications(prev => prev.map(cert => 
+    setCertifications(prev => prev.map(cert =>
       cert.id === id ? { ...cert, [field]: value } : cert
     ))
+  }
+
+  // Check if text contains markdown
+  const containsMarkdown = (text) => {
+    if (!text || typeof text !== 'string') return false
+    const markdownPatterns = [
+      /#{1,6}\s/,               // Headers
+      /\*\*.+?\*\*/,            // Bold
+      /\*.+?\*/,                // Italic
+      /\[.+?\]\(.+?\)/,         // Links
+      /^- /m,                   // List items
+      /`{1,3}.+?`{1,3}/,       // Code
+      />\s/                     // Blockquotes
+    ]
+    return markdownPatterns.some(pattern => pattern.test(text))
   }
 
   // Generate CV Preview
   const generatePreview = () => {
     let html = ''
-    
+
     if (personalInfo.name) html += `<h2 class="text-2xl font-bold text-blue-600 mb-2">${personalInfo.name}</h2>`
-    if (personalInfo.headline) html += `<h4 class="text-lg font-semibold text-gray-700 mb-3">${personalInfo.headline}</h4>`
-    
+    if (personalInfo.headline) html += `<h4 className="text-lg font-semibold text-gray-700 mb-3">${personalInfo.headline}</h4>`
+
     const contact = [personalInfo.email, personalInfo.phone, personalInfo.location, personalInfo.linkedin].filter(Boolean)
-    if (contact.length) html += `<p class="text-sm text-gray-600 mb-4">${contact.join(' | ')}</p>`
-    
-    if (summary) html += `<h3 class="text-lg font-semibold text-gray-800 mt-4 mb-2">Professional Summary</h3><p class="text-gray-700 mb-4">${summary.replace(/\n/g, '<br>')}</p>`
-    
-    if (experiences.length > 0) {
-      html += `<h3 class="text-lg font-semibold text-gray-800 mt-4 mb-2">Work Experience</h3>`
-      experiences.forEach(exp => {
-        if (exp.title || exp.company || exp.dates || exp.bullets) {
-          html += `<h4 class="font-semibold text-gray-800">${exp.title} at ${exp.company}, ${exp.dates}</h4>`
-          if (exp.bullets) {
-            html += '<ul class="list-disc list-inside text-gray-700 mb-3">' + 
-              exp.bullets.split('\n').map(b => b.trim() ? `<li>${b}</li>` : '').join('') + 
-              '</ul>'
-          }
-        }
-      })
-    }
-    
-    if (education.length > 0) {
-      html += `<h3 class="text-lg font-semibold text-gray-800 mt-4 mb-2">Education</h3>`
-      education.forEach(edu => {
-        if (edu.degree || edu.school || edu.dates || edu.details) {
-          html += `<h4 class="font-semibold text-gray-800">${edu.degree}, ${edu.school}, ${edu.dates}</h4>`
-          if (edu.details) {
-            html += '<ul class="list-disc list-inside text-gray-700 mb-3">' + 
-              edu.details.split('\n').map(d => d.trim() ? `<li>${d}</li>` : '').join('') + 
-              '</ul>'
-          }
-        }
-      })
-    }
-    
-    if (skills) {
-      html += `<h3 class="text-lg font-semibold text-gray-800 mt-4 mb-2">Skills</h3><ul class="list-disc list-inside text-gray-700 mb-4">` + 
-        skills.split('\n').map(s => s.trim() ? `<li>${s}</li>` : '').join('') + 
-        `</ul>`
-    }
-    
-    if (certifications.length > 0) {
-      html += `<h3 class="text-lg font-semibold text-gray-800 mt-4 mb-2">Certifications</h3>`
-      certifications.forEach(cert => {
-        if (cert.name || cert.issuer || cert.date) {
-          html += `<p class="text-gray-700">${cert.name}, ${cert.issuer}, ${cert.date}</p>`
-        }
-      })
-    }
-    
-    return html
+    if (contact.length) html += `<p className="text-sm text-gray-600 mb-4">${contact.join(' | ')}</p>`
+
+    return (
+      <div className="prose prose-sm max-w-none">
+        {html && <div dangerouslySetInnerHTML={{ __html: html }} />}
+
+        {summary && (
+          <>
+            <h3 className="text-lg font-semibold text-gray-800 mt-4 mb-2">Professional Summary</h3>
+            {containsMarkdown(summary) ? (
+              <ReactMarkdown>{summary}</ReactMarkdown>
+            ) : (
+              <p className="text-gray-700 mb-4">{summary.replace(/\n/g, '<br>')}</p>
+            )}
+          </>
+        )}
+
+        {experiences.length > 0 && (
+          <>
+            <h3 className="text-lg font-semibold text-gray-800 mt-4 mb-2">Work Experience</h3>
+            {experiences.map((exp, index) => {
+              if (exp.title || exp.company || exp.dates || exp.bullets.length > 0) {
+                return (
+                  <div key={index}>
+                    <h4 className="font-semibold text-gray-800">{exp.title} at {exp.company}, {exp.dates}</h4>
+                    {exp.bullets.length > 0 && (
+                      <ul className="list-disc list-inside text-gray-700 mb-3">
+                        {exp.bullets.map((b, i) => (
+                          <li key={i}>
+                            <ReactMarkdown components={{ p: ({ node, ...props }) => <span {...props} /> }}>{b}</ReactMarkdown>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )
+              }
+              return null
+            })}
+          </>
+        )}
+
+        {education.length > 0 && (
+          <>
+            <h3 className="text-lg font-semibold text-gray-800 mt-4 mb-2">Education</h3>
+            {education.map((edu, index) => {
+              if (edu.degree || edu.school || edu.dates || edu.details.length > 0) {
+                return (
+                  <div key={index}>
+                    <h4 className="font-semibold text-gray-800">{edu.degree}, {edu.school}, {edu.dates}</h4>
+                    {edu.details.length > 0 && (
+                      <ul className="list-disc list-inside text-gray-700 mb-3">
+                        {edu.details.map((d, i) => (
+                          <li key={i}>
+                            <ReactMarkdown components={{ p: ({ node, ...props }) => <span {...props} /> }}>{d}</ReactMarkdown>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )
+              }
+              return null
+            })}
+          </>
+        )}
+
+        {skills.length > 0 && (
+          <>
+            <h3 className="text-lg font-semibold text-gray-800 mt-4 mb-2">Skills</h3>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-gray-700 mb-4">
+              {skills.map((s, i) => (
+                <div key={i} className="flex items-center">
+                  <span className="w-2 h-2 bg-gray-500 rounded-full mr-2" />
+                  <ReactMarkdown components={{ p: ({ node, ...props }) => <span {...props} /> }}>
+                    {s}
+                  </ReactMarkdown>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+
+        {certifications.length > 0 && (
+          <>
+            <h3 className="text-lg font-semibold text-gray-800 mt-4 mb-2">Certifications</h3>
+            {certifications.map((cert, index) => {
+              if (cert.name || cert.issuer || cert.date) {
+                return (
+                  <p key={index} className="text-gray-700">{cert.name}, {cert.issuer}, {cert.date}</p>
+                )
+              }
+              return null
+            })}
+          </>
+        )}
+      </div>
+    )
   }
 
   // Feedback Component
@@ -307,7 +473,7 @@ export default function CVBuilder() {
               <p className="text-gray-700 text-sm">{feedback.feedback}</p>
             </div>
           </div>
-          
+
           <div className="flex items-start">
             <Lightbulb className="w-4 h-4 mr-2 mt-0.5 text-green-600" />
             <div>
@@ -333,20 +499,22 @@ export default function CVBuilder() {
             <CheckCircle className="w-4 h-4 mr-2 mt-0.5 text-blue-600" />
             <div>
               <p className="font-semibold text-gray-800">Formatted:</p>
-              <p className="text-blue-700 text-sm font-medium">{feedback.formatted}</p>
+              <div className="text-blue-700 text-sm font-medium">
+                <ReactMarkdown>{feedback.formatted}</ReactMarkdown>
+              </div>
             </div>
           </div>
 
           <div className="flex gap-2 pt-2">
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               onClick={() => onApply(feedback.formatted)}
               className="bg-blue-600 hover:bg-blue-700"
             >
               Apply Formatted
             </Button>
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               variant="outline"
               onClick={() => onApply(feedback.suggestion)}
               className="border-green-600 text-green-600 hover:bg-green-50"
@@ -363,13 +531,13 @@ export default function CVBuilder() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
       <div className="max-w-7xl mx-auto">
         <Card className="shadow-xl">
-          <CardHeader className="text-center bg-gradient-to-r  text-blue-500 rounded-t-lg">
+          <CardHeader className="text-center bg-gradient-to-r text-blue-500 rounded-t-lg">
             <CardTitle className="text-3xl font-bold flex items-center justify-center gap-2">
               <FileText className="w-8 h-8" />
               Professional CV & Cover Letter Builder
             </CardTitle>
           </CardHeader>
-          
+
           <CardContent className="p-8">
             <Tabs defaultValue="cv" className="w-full">
               <TabsList className="grid w-full grid-cols-2 mb-6">
@@ -451,9 +619,9 @@ export default function CVBuilder() {
                                 placeholder="Write your professional summary here..."
                                 className="min-h-[150px] resize-y"
                               />
-                              <FeedbackPanel 
-                                fieldId="summary" 
-                                onApply={(content) => applySuggestion('summary', content, setSummary)}
+                              <FeedbackPanel
+                                fieldId="summary"
+                                onApply={(content) => applyContent('summary', content)}
                               />
                             </AccordionContent>
                           </AccordionItem>
@@ -485,18 +653,36 @@ export default function CVBuilder() {
                                       onChange={(e) => updateExperience(exp.id, 'dates', e.target.value)}
                                       placeholder="Dates (e.g., June 2019 - Present)"
                                     />
-                                    <Textarea
-                                      value={exp.bullets}
-                                      onChange={(e) => {
-                                        manualChanges.current.experiences[exp.id] = true;
-                                        updateExperience(exp.id, 'bullets', e.target.value);
-                                      }}
-                                      placeholder="Bullets (one per line)"
-                                      className="min-h-[100px]"
-                                    />
-                                    <FeedbackPanel 
-                                      fieldId={`exp-${exp.id}`} 
-                                      onApply={(content) => applySuggestion(`exp-${exp.id}`, content, (value) => updateExperience(exp.id, 'bullets', value))}
+                                    <div className="space-y-2">
+                                      {exp.bullets.map((bullet, idx) => (
+                                        <div key={idx} className="flex items-end gap-2">
+                                          <Textarea
+                                            value={bullet}
+                                            onChange={(e) => updateExpBullet(exp.id, idx, e.target.value)}
+                                            placeholder="Enter bullet point..."
+                                            className="min-h-[60px] resize-y"
+                                          />
+                                          <Button
+                                            variant="destructive"
+                                            size="sm"
+                                            onClick={() => removeExpBullet(exp.id, idx)}
+                                          >
+                                            <Trash2 className="w-4 h-4" />
+                                          </Button>
+                                        </div>
+                                      ))}
+                                      <Button
+                                        onClick={() => addBulletToExp(exp.id)}
+                                        variant="secondary"
+                                        className="w-full flex items-center gap-2"
+                                      >
+                                        <Plus className="w-4 h-4" />
+                                        Add Bullet Point
+                                      </Button>
+                                    </div>
+                                    <FeedbackPanel
+                                      fieldId={`exp-${exp.id}`}
+                                      onApply={(content) => applyContent(`exp-${exp.id}`, content)}
                                     />
                                   </div>
                                 </Card>
@@ -531,18 +717,36 @@ export default function CVBuilder() {
                                       onChange={(e) => updateEducation(edu.id, 'dates', e.target.value)}
                                       placeholder="Dates"
                                     />
-                                    <Textarea
-                                      value={edu.details}
-                                      onChange={(e) => {
-                                        manualChanges.current.education[edu.id] = true;
-                                        updateEducation(edu.id, 'details', e.target.value);
-                                      }}
-                                      placeholder="Details/Achievements (optional)"
-                                      className="min-h-[80px]"
-                                    />
-                                    <FeedbackPanel 
-                                      fieldId={`edu-${edu.id}`} 
-                                      onApply={(content) => applySuggestion(`edu-${edu.id}`, content, (value) => updateEducation(edu.id, 'details', value))}
+                                    <div className="space-y-2">
+                                      {edu.details.map((detail, idx) => (
+                                        <div key={idx} className="flex items-end gap-2">
+                                          <Textarea
+                                            value={detail}
+                                            onChange={(e) => updateEduDetail(edu.id, idx, e.target.value)}
+                                            placeholder="Enter detail/achievement..."
+                                            className="min-h-[60px] resize-y"
+                                          />
+                                          <Button
+                                            variant="destructive"
+                                            size="sm"
+                                            onClick={() => removeEduDetail(edu.id, idx)}
+                                          >
+                                            <Trash2 className="w-4 h-4" />
+                                          </Button>
+                                        </div>
+                                      ))}
+                                      <Button
+                                        onClick={() => addDetailToEdu(edu.id)}
+                                        variant="secondary"
+                                        className="w-full flex items-center gap-2"
+                                      >
+                                        <Plus className="w-4 h-4" />
+                                        Add Detail
+                                      </Button>
+                                    </div>
+                                    <FeedbackPanel
+                                      fieldId={`edu-${edu.id}`}
+                                      onApply={(content) => applyContent(`edu-${edu.id}`, content)}
                                     />
                                   </div>
                                 </Card>
@@ -554,16 +758,34 @@ export default function CVBuilder() {
                             <AccordionTrigger className="text-lg font-semibold">
                               Skills
                             </AccordionTrigger>
-                            <AccordionContent>
-                              <Textarea
-                                value={skills}
-                                onChange={(e) => handleTextChange('skills', e.target.value, setSkills, 'skills')}
-                                placeholder="List skills, one per line..."
-                                className="min-h-[120px]"
-                              />
-                              <FeedbackPanel 
-                                fieldId="skills" 
-                                onApply={(content) => applySuggestion('skills', content, setSkills)}
+                            <AccordionContent className="space-y-2">
+                              {skills.map((skill, idx) => (
+                                <div key={idx} className="flex items-center gap-2">
+                                  <Input
+                                    value={skill}
+                                    onChange={(e) => updateSkill(idx, e.target.value)}
+                                    placeholder="Enter skill..."
+                                  />
+                                  <Button
+                                    variant="destructive"
+                                    size="sm"
+                                    onClick={() => removeSkill(idx)}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </Button>
+                                </div>
+                              ))}
+                              <Button
+                                onClick={addSkill}
+                                variant="secondary"
+                                className="w-full flex items-center gap-2"
+                              >
+                                <Plus className="w-4 h-4" />
+                                Add Skill
+                              </Button>
+                              <FeedbackPanel
+                                fieldId="skills"
+                                onApply={(content) => applyContent('skills', content)}
                               />
                             </AccordionContent>
                           </AccordionItem>
@@ -612,10 +834,9 @@ export default function CVBuilder() {
                         <CardTitle className="text-xl">CV Preview</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div 
-                          className="prose prose-sm max-w-none"
-                          dangerouslySetInnerHTML={{ __html: generatePreview() }}
-                        />
+                        <div className="prose prose-sm max-w-none">
+                          {generatePreview()}
+                        </div>
                       </CardContent>
                     </Card>
                   </div>
@@ -623,9 +844,9 @@ export default function CVBuilder() {
               </TabsContent>
 
               <TabsContent value="cover">
-                <div className="grid grid-cols-1 lg:grid-cols-7 gap-8">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   {/* Cover Letter Editor */}
-                  <div className="lg:col-span-4">
+                  <div className="space-y-6">
                     <Card className="bg-gray-50">
                       <CardContent className="p-6 space-y-6">
                         <div>
@@ -653,12 +874,23 @@ export default function CVBuilder() {
                     </Card>
                   </div>
 
-                  {/* Cover Letter Feedback */}
-                  <div className="lg:col-span-3">
-                    <FeedbackPanel 
-                      fieldId="cover" 
-                      onApply={(content) => applySuggestion('cover', content, setCoverText)}
+                  {/* Cover Letter Feedback and Preview */}
+                  <div className="space-y-6">
+                    <FeedbackPanel
+                      fieldId="cover"
+                      onApply={(content) => applyContent('cover', content)}
                     />
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-xl">Cover Letter Preview</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="prose prose-sm">
+                          <ReactMarkdown>{coverText}</ReactMarkdown>
+                        </div>
+                      </CardContent>
+                    </Card>
+
                   </div>
                 </div>
               </TabsContent>

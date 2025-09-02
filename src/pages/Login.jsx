@@ -351,7 +351,7 @@ const Login = () => {
       </div>
 
       {/* Enhanced Custom CSS for animations */}
-      <style jsx>{`
+      <style >{`
         @keyframes fade-in-up {
           from {
             opacity: 0;

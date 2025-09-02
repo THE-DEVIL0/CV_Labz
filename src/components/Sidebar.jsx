@@ -49,9 +49,7 @@ const Sidebar = () => {
     { path: "/keyword-manager", label: "Keyword Manager", icon: TagIcon },
     { path: "/campaign-calendar-scheduler", label: "Campaign Calendar & Scheduler", icon: CalendarIcon },
     { path: "/performance-analyzer", label: "Performance Analyzer", icon: BarChartIcon },
-    { path: "/engagement-bot", label: "Engagement Bot", icon: MessageCircleIcon },
-    { path: "/persona-builder", label: "Persona Builder & Targeting Optimizer", icon: UsersIcon },
-    { path: "/google-ads-generator", label: "Google Ads Generator & Optimizer", icon: SearchIcon },
+    { path: "/persona-builder", label: "Persona Builder & Targeting Optimizer", icon: UsersIcon }
   ]
 
   return (

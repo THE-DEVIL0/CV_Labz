@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from 'react';
-import apiService from '@/services/api'; 
+import React, { useState } from 'react';
 
 const BrandImageGenerator = () => {
   // Auto mode state
@@ -12,8 +11,6 @@ const BrandImageGenerator = () => {
   // Manual mode state
   const [manualMode, setManualMode] = useState({
     image_prompt: '',
-    small_text: '',
-    main_text: '',
     sub_text: '',
     size: 'portrait'
   });
@@ -24,6 +21,11 @@ const BrandImageGenerator = () => {
   const [activeTab, setActiveTab] = useState('auto');
   const [notification, setNotification] = useState({ show: false, type: '', message: '' });
   const [showSkeleton, setShowSkeleton] = useState(false);
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [uploadingIds, setUploadingIds] = useState([]);
+
+  // Backend API base URL
+  const API_BASE = 'https://triumphant-perception-production.up.railway.app';
 
   const showNotification = (type, message) => {
     setNotification({ show: true, type, message });
@@ -48,102 +50,222 @@ const BrandImageGenerator = () => {
     }));
   };
 
-  const generateAutoImages = async (e) => {
-    e.preventDefault();
-    if (!autoMode.topic.trim()) {
-      showNotification('error', 'Please fill in the topic field.');
-      return;
-    }
-
-    setIsLoading(true);
-    setShowSkeleton(true);
-    setGeneratedImages([]);
+  const handleUploadToDrive = async (image) => {
+    if (uploadingIds.includes(image.id)) return;
+    setUploadingIds(prev => [...prev, image.id]);
 
     try {
-      const response = await apiService.apiCall('/auto', {
+      console.log('📤 Uploading to Drive:', image);
+      
+      if (!image.url || !image.title) {
+        showNotification('error', 'Invalid image data for upload.');
+        return;
+      }
+
+      showNotification('info', 'Uploading to Google Drive...');
+
+      const response = await fetch(`${API_BASE}/image/upload-to-drive`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(autoMode),
+        body: JSON.stringify({
+          imageUrl: image.url,
+          fileName: image.title
+        }),
       });
+
       const data = await response.json();
-      const images = data.slides.map((base64, i) => ({
-        id: Date.now() + i,
-        url: `data:image/png;base64,${base64}`,
-        prompt: autoMode.topic
-      }));
-      setGeneratedImages(images);
-      setShowSkeleton(false);
-      setIsLoading(false);
-      showNotification('success', 'Images generated successfully!');
+      console.log('📨 Drive response:', data);
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      showNotification('success', `Uploaded! View in Drive`);
+      window.open(data.webViewLink, '_blank');
     } catch (error) {
-      console.error('Error generating auto images:', error);
-      setShowSkeleton(false);
-      setIsLoading(false);
-      showNotification('error', 'Failed to generate images.');
+      console.error('Drive upload error:', error);
+      showNotification('error', error.message || 'Failed to upload to Google Drive.');
+    } finally {
+      setUploadingIds(prev => prev.filter(id => id !== image.id));
     }
   };
+
+  const generateAutoImages = async (e) => {
+  e.preventDefault();
+  if (!autoMode.topic.trim()) {
+    showNotification('error', 'Please fill in all required fields.');
+    return;
+  }
+
+  setIsLoading(true);
+  setShowSkeleton(true);
+  setGeneratedImages([]);
+
+  try {
+    console.log('🤖 Sending auto request:', autoMode);
+    const response = await fetch(`${API_BASE}/image/auto`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(autoMode),
+    });
+
+    console.log('📨 Auto response status:', response.status);
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Server returned ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    console.log('✅ Auto response data:', data);
+    
+    if (data.error) throw new Error(data.error);
+
+    const timestamp = Date.now();
+
+    // Fix: Access the nested url field
+    const images = data.slides.map((slide, i) => {
+      console.log(`🖼️ Slide ${i}:`, slide);
+      return {
+        id: timestamp + i,
+        url: slide.url.url || slide.url, // Use slide.url.url if nested, fallback to slide.url
+        title: `${autoMode.topic.replace(/\s+/g, "_")}_${timestamp}_${i + 1}`,
+        description: `Tip ${i + 1}: ${autoMode.topic}`,
+      };
+    });
+
+    console.log('📸 Processed images:', images);
+    setGeneratedImages(images);
+    setShowSkeleton(false);
+    setIsLoading(false);
+    showNotification('success', 'Images generated successfully!');
+  } catch (error) {
+    console.error('Error generating auto images:', error);
+    setShowSkeleton(false);
+    setIsLoading(false);
+    showNotification('error', error.message || 'Failed to generate images. Please check your backend connection.');
+  }
+};
 
   const generateManualImages = async (e) => {
-    e.preventDefault();
-    if (!manualMode.image_prompt.trim() || !manualMode.main_text.trim()) {
-      showNotification('error', 'Please fill in all required fields.');
-      return;
+  e.preventDefault();
+  if (!manualMode.image_prompt.trim()) {
+    showNotification('error', 'Please fill in all required fields.');
+    return;
+  }
+
+  setIsLoading(true);
+  setShowSkeleton(true);
+  setGeneratedImages([]);
+
+  try {
+    console.log('👤 Sending manual request:', manualMode);
+    const response = await fetch(`${API_BASE}/image/manual`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(manualMode),
+    });
+
+    console.log('📨 Manual response status:', response.status);
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Server returned ${response.status}: ${response.statusText}`);
     }
 
-    setIsLoading(true);
-    setShowSkeleton(true);
-    setGeneratedImages([]);
+    const data = await response.json();
+    console.log('✅ Manual response data:', data);
 
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
+    const timestamp = Date.now();
+
+    // Fix: Access the nested url field
+    const images = data.slides.map((slide, i) => {
+      console.log(`🖼️ Manual slide:`, slide);
+      return {
+        id: timestamp + i,
+        url: slide.url.url || slide.url, // Use slide.url.url if nested, fallback to slide.url
+        title: `Manual_Upload_${timestamp}`,
+        description: manualMode.sub_text || "Custom generated image",
+      };
+    });
+
+    console.log('📸 Processed manual images:', images);
+    setGeneratedImages(images);
+    setShowSkeleton(false);
+    setIsLoading(false);
+    showNotification('success', 'Image generated successfully!');
+  } catch (error) {
+    console.error('Error generating manual image:', error);
+    setShowSkeleton(false);
+    setIsLoading(false);
+    showNotification('error', error.message || 'Failed to generate image. Please check your backend connection.');
+  }
+};
+
+  const handleDownload = async (url, filename) => {
     try {
-      const response = await apiService.apiCall('/manual', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(manualMode),
+      console.log('📥 Downloading image:', url);
+      
+      const response = await fetch(url, {
+        mode: 'cors',
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+        },
       });
-      const data = await response.json();
-      const images = data.slides.map((base64, i) => ({
-        id: Date.now() + i,
-        url: `data:image/png;base64,${base64}`,
-        prompt: manualMode.image_prompt
-      }));
-      setGeneratedImages(images);
-      setShowSkeleton(false);
-      setIsLoading(false);
-      showNotification('success', 'Image generated successfully!');
+
+      console.log('📨 Download response status:', response.status);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      console.log('✅ Image blob created, size:', blob.size);
+      
+      const cleanFilename = filename.replace(/[^a-zA-Z0-9-_]/g, '_') + '.png';
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = cleanFilename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+      showNotification('success', 'Image downloaded successfully!');
     } catch (error) {
-      console.error('Error generating manual image:', error);
-      setShowSkeleton(false);
-      setIsLoading(false);
-      showNotification('error', 'Failed to generate image.');
+      console.error('Download error:', error);
+      showNotification('error', 'Failed to download image.');
     }
   };
 
-  const handleDownload = (url, filename) => {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename || 'generated_image.png';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleImageClick = (image) => {
+    console.log('🖱️ Image clicked:', image);
+    setSelectedImage(image);
   };
 
-  // Cleanup on component unmount
-  useEffect(() => {
-    return () => {
-      // Any cleanup if needed
-    };
-  }, []);
+  const closeModal = () => {
+    setSelectedImage(null);
+  };
+
+  // Debug function to check image loading
+  const handleImageError = (e, image) => {
+    console.error('❌ Image failed to load:', image);
+    console.error('Error event:', e);
+    showNotification('error', 'Failed to load image. Check console for details.');
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
-      <div className="px-4 md:px-8 lg:px-12 py-8">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 flex items-center justify-center">
+      <div className="px-4 md:px-8 lg:px-12 py-8 w-full max-w-7xl">
         {/* Notification */}
         {notification.show && (
-          <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg ${
-            notification.type === 'success' 
-              ? 'bg-green-100 text-green-800 border border-green-200' 
-              : 'bg-red-100 text-red-800 border border-red-200'
-          }`}>
+          <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg ${notification.type === 'success'
+            ? 'bg-green-100 text-green-800 border border-green-200'
+            : 'bg-red-100 text-red-800 border border-red-200'
+            }`}>
             {notification.message}
           </div>
         )}
@@ -162,21 +284,21 @@ const BrandImageGenerator = () => {
               strokeLinejoin="round"
               className="lucide lucide-image h-4 w-4"
             >
-              <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/>
-              <circle cx="9" cy="9" r="2"/>
-              <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
+              <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+              <circle cx="9" cy="9" r="2" />
+              <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
             </svg>
-            Brand Image Generator
+            Career Slide Generator
           </div>
-          
+
           <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold mb-4 text-gray-900 leading-tight">
             <span className="bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent">
-              AI-Powered Image Generator
+              AI-Powered Career Slide Generator
             </span>
           </h1>
-          
+
           <p className="text-base md:text-lg text-gray-600 mb-6 max-w-2xl mx-auto leading-relaxed">
-            Create stunning branded images with AI. Choose between automatic generation or manual customization.
+            Create stunning career-themed slides with AI. Choose between automatic generation or manual customization.
           </p>
         </div>
 
@@ -185,17 +307,15 @@ const BrandImageGenerator = () => {
           <div className="inline-flex bg-white rounded-full p-1 shadow-sm">
             <button
               onClick={() => setActiveTab('auto')}
-              className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${
-                activeTab === 'auto' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-              }`}
+              className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${activeTab === 'auto' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+                }`}
             >
               Auto Mode
             </button>
             <button
               onClick={() => setActiveTab('manual')}
-              className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${
-                activeTab === 'manual' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-              }`}
+              className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${activeTab === 'manual' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+                }`}
             >
               Manual Mode
             </button>
@@ -204,13 +324,13 @@ const BrandImageGenerator = () => {
 
         {/* Auto Mode Form */}
         {activeTab === 'auto' && (
-          <div className="glass-card rounded-3xl overflow-hidden shadow-soft-lg p-8 mb-8">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Auto Mode</h2>
-            <p className="text-gray-600 mb-6 text-center">Let AI generate complete branded images based on your topic</p>
-            
-            <form onSubmit={generateAutoImages} className="max-w-2xl mx-auto space-y-6">
+          <div className="glass-card rounded-3xl overflow-hidden shadow-soft-lg p-8 mb-8 mx-auto max-w-2xl">
+            <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Auto Mode</h2>
+            <p className="text-gray-600 mb-6 text-center">Let AI generate complete career slides based on your topic</p>
+
+            <form onSubmit={generateAutoImages} className="space-y-6">
               <div>
-                <label className="block text-gray-700 font-medium mb-2">Topic *</label>
+                <label className="block text-gray-700 font-medium mb-2">Career Topic *</label>
                 <input
                   type="text"
                   id="topic"
@@ -218,13 +338,13 @@ const BrandImageGenerator = () => {
                   value={autoMode.topic}
                   onChange={handleAutoChange}
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Enter your topic (e.g., Digital Marketing Tips)"
+                  placeholder="Enter your career topic (e.g., Interview Skills, Resume Writing)"
                   required
                 />
               </div>
-              
+
               <div>
-                <label className="block text-gray-700 font-medium mb-2">Number of Images *</label>
+                <label className="block text-gray-700 font-medium mb-2">Number of Slides *</label>
                 <input
                   type="number"
                   id="num_slides"
@@ -236,8 +356,9 @@ const BrandImageGenerator = () => {
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                 />
+                <p className="text-sm text-gray-500 mt-1">First slide will be the main topic, others will be tips</p>
               </div>
-              
+
               <div>
                 <label className="block text-gray-700 font-medium mb-2">Aspect Ratio *</label>
                 <select
@@ -247,19 +368,29 @@ const BrandImageGenerator = () => {
                   onChange={handleAutoChange}
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="portrait">Portrait (Mobile)</option>
-                  <option value="landscape">Landscape (Web)</option>
-                  <option value="square">Square (Auto)</option>
+                  <option value="portrait">Portrait (1024x1792)</option>
+                  <option value="landscape">Landscape (1792x1024)</option>
+                  <option value="square">Square (1024x1024)</option>
                 </select>
               </div>
-              
+
               <div className="text-center">
-                <button 
+                <button
                   type="submit"
                   disabled={isLoading}
                   className="inline-flex items-center justify-center gap-2 font-medium transition-colors bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white text-sm px-6 py-3 rounded-xl shadow-colored"
                 >
-                  {isLoading ? 'Generating...' : 'Generate Images'}
+                  {isLoading ? (
+                    <>
+                      <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Generating...
+                    </>
+                  ) : (
+                    'Generate Slides'
+                  )}
                 </button>
               </div>
             </form>
@@ -268,11 +399,11 @@ const BrandImageGenerator = () => {
 
         {/* Manual Mode Form */}
         {activeTab === 'manual' && (
-          <div className="glass-card rounded-3xl overflow-hidden shadow-soft-lg p-8 mb-8">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Manual Mode</h2>
-            <p className="text-gray-600 mb-6 text-center">Customize every aspect of your branded image</p>
-            
-            <form onSubmit={generateManualImages} className="max-w-2xl mx-auto space-y-6">
+          <div className="glass-card rounded-3xl overflow-hidden shadow-soft-lg p-8 mb-8 mx-auto max-w-2xl">
+            <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Manual Mode</h2>
+            <p className="text-gray-600 mb-6 text-center">Customize every aspect of your career slide</p>
+
+            <form onSubmit={generateManualImages} className="space-y-6">
               <div>
                 <label className="block text-gray-700 font-medium mb-2">Image Prompt (for AI background) *</label>
                 <textarea
@@ -282,38 +413,12 @@ const BrandImageGenerator = () => {
                   onChange={handleManualChange}
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                   placeholder="Describe the background image you want (e.g., 'modern office with laptop on desk')"
-                  rows="4"
+                  rows="3"
                   required
                 />
+                <p className="text-sm text-gray-500 mt-1">The AI will generate a background based on this prompt</p>
               </div>
-              
-              <div>
-                <label className="block text-gray-700 font-medium mb-2">Small Text (optional)</label>
-                <input
-                  type="text"
-                  id="small_text"
-                  name="small_text"
-                  value={manualMode.small_text}
-                  onChange={handleManualChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="e.g., Career Tip #42"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-gray-700 font-medium mb-2">Main Content Text *</label>
-                <textarea
-                  id="main_text"
-                  name="main_text"
-                  value={manualMode.main_text}
-                  onChange={handleManualChange}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  placeholder="Enter your main content (use new lines for formatting)"
-                  rows="4"
-                  required
-                />
-              </div>
-              
+
               <div>
                 <label className="block text-gray-700 font-medium mb-2">Sub Text (optional)</label>
                 <input
@@ -326,7 +431,7 @@ const BrandImageGenerator = () => {
                   placeholder="e.g., Your tagline or call to action"
                 />
               </div>
-              
+
               <div>
                 <label className="block text-gray-700 font-medium mb-2">Aspect Ratio *</label>
                 <select
@@ -336,19 +441,29 @@ const BrandImageGenerator = () => {
                   onChange={handleManualChange}
                   className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  <option value="portrait">Portrait (Mobile)</option>
-                  <option value="landscape">Landscape (Web)</option>
-                  <option value="square">Square (Auto)</option>
+                  <option value="portrait">Portrait (1024x1792)</option>
+                  <option value="landscape">Landscape (1792x1024)</option>
+                  <option value="square">Square (1024x1024)</option>
                 </select>
               </div>
-              
+
               <div className="text-center">
-                <button 
+                <button
                   type="submit"
                   disabled={isLoading}
                   className="inline-flex items-center justify-center gap-2 font-medium transition-colors bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white text-sm px-6 py-3 rounded-xl shadow-colored"
                 >
-                  {isLoading ? 'Generating...' : 'Generate Image'}
+                  {isLoading ? (
+                    <>
+                      <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Generating...
+                    </>
+                  ) : (
+                    'Generate Slide'
+                  )}
                 </button>
               </div>
             </form>
@@ -357,31 +472,45 @@ const BrandImageGenerator = () => {
 
         {/* Generated Images */}
         {generatedImages.length > 0 && !showSkeleton && (
-          <div className="glass-card rounded-3xl overflow-hidden shadow-soft-lg p-8">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Generated Images</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {generatedImages.map((image) => (
-                <div key={image.id} className="bg-white rounded-xl overflow-hidden shadow-md">
-                  <div className="relative pb-[100%]">
-                    <img 
-                      src={image.url} 
-                      alt="Generated content"
-                      className="absolute h-full w-full object-cover"
-                    />
-                  </div>
-                  <div className="p-4">
-                    <p className="text-sm text-gray-600">{image.prompt}</p>
-                    <div className="mt-3 flex justify-between">
-                      <button 
-                        onClick={() => handleDownload(image.url, `generated_${image.id}.png`)}
-                        className="text-sm text-blue-600 hover:text-blue-800"
-                      >
-                        Download
-                      </button>
-                      <button className="text-sm text-gray-600 hover:text-gray-800">
-                        Regenerate
-                      </button>
+          <div className="glass-card rounded-3xl overflow-hidden shadow-soft-lg p-8 max-w-5xl mx-auto">
+            <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">
+              {activeTab === 'auto' ? 'Generated Career Slides' : 'Generated Slide'}
+            </h2>
+            <div className="flex flex-wrap justify-center gap-6">
+              {generatedImages.map((image, index) => (
+                <div key={image.id} className="flex flex-col items-center">
+                  <div
+                    className="bg-white rounded-2xl overflow-hidden shadow-lg transition-transform hover:scale-105 cursor-pointer w-64"
+                    onClick={() => handleImageClick(image)}
+                  >
+                    <div className="relative h-48 bg-gray-100 flex items-center justify-center">
+                      <img
+                        src={image.url}
+                        alt={image.title}
+                        className="w-full h-full object-contain"
+                        onError={(e) => handleImageError(e, image)}
+                        onLoad={() => console.log(`✅ Image ${index} loaded successfully`)}
+                      />
                     </div>
+                    <div className="p-4">
+                      <h3 className="text-sm font-medium text-gray-800 truncate">{image.title}</h3>
+                      <p className="text-xs text-gray-500 mt-1 truncate">{image.description}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-col gap-2">
+                    <button 
+                      onClick={() => handleDownload(image.url, image.title)}
+                      className="px-4 py-2 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600 transition-colors"
+                    >
+                      Download
+                    </button>
+                    <button
+                      onClick={() => handleUploadToDrive(image)}
+                      disabled={uploadingIds.includes(image.id)}
+                      className="px-4 py-2 bg-green-500 text-white rounded-md text-sm hover:bg-green-600 disabled:bg-gray-400 transition-colors"
+                    >
+                      {uploadingIds.includes(image.id) ? 'Uploading...' : 'Upload to Drive'}
+                    </button>
                   </div>
                 </div>
               ))}
@@ -391,18 +520,53 @@ const BrandImageGenerator = () => {
 
         {/* Loading Skeleton */}
         {showSkeleton && (
-          <div className="glass-card rounded-3xl overflow-hidden shadow-soft-lg p-8">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Generating Your Images</h2>
-            <p className="text-gray-600 mb-6 text-center">AI is creating your branded content...</p>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="glass-card rounded-3xl overflow-hidden shadow-soft-lg p-8 mx-auto max-w-5xl">
+            <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Generating Your Career Slides</h2>
+            <p className="text-gray-600 mb-6 text-center">AI is creating your professional slides...</p>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {Array.from({ length: activeTab === 'auto' ? autoMode.num_slides : 1 }).map((_, index) => (
-                <div key={index} className="animate-pulse space-y-4">
-                  <div className="h-64 bg-gray-200 rounded-xl"></div>
-                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-                  <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                <div key={index} className="animate-pulse flex flex-col items-center">
+                  <div className="bg-gray-200 rounded-2xl w-full h-48"></div>
+                  <div className="mt-4 space-y-2 w-full text-center">
+                    <div className="h-4 bg-gray-200 rounded w-3/4 mx-auto"></div>
+                    <div className="h-3 bg-gray-200 rounded w-1/2 mx-auto"></div>
+                    <div className="h-8 bg-gray-200 rounded w-2/3 mx-auto mt-3"></div>
+                  </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Image Modal */}
+        {selectedImage && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={closeModal}>
+            <div className="bg-white rounded-2xl p-4 max-w-4xl w-full max-h-[90vh] overflow-auto" onClick={e => e.stopPropagation()}>
+              <div className="relative">
+                <button
+                  className="absolute top-2 right-2 text-gray-600 hover:text-gray-800 z-10"
+                  onClick={closeModal}
+                >
+                  <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+                <img
+                  src={selectedImage.url}
+                  alt={selectedImage.title}
+                  className="w-full h-auto object-contain max-h-[80vh]"
+                  onError={(e) => handleImageError(e, selectedImage)}
+                />
+                <div className="mt-4 text-center">
+                  <button 
+                    onClick={() => handleDownload(selectedImage.url, selectedImage.title)}
+                    className="px-4 py-2 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600 transition-colors"
+                  >
+                    Download
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}

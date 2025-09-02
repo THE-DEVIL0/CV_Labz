@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
 
 const Agent4 = () => {
   const [file, setFile] = useState(null);
   const [inputValue, setInputValue] = useState('');
   const [textOutput, setTextOutput] = useState('');
-  const [pdfOutput, setPdfOutput] = useState([]);
   const [uploadMessage, setUploadMessage] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -44,22 +44,49 @@ const Agent4 = () => {
     setIsUploading(true);
 
     try {
+      console.log("📤 Starting PDF upload...");
+      console.log("   👉 File object:", file);
+      console.log("   📄 File name:", file.name);
+      console.log("   📑 File type:", file.type);
+      console.log("   📏 File size:", file.size, "bytes");
+
       const formData = new FormData();
       formData.append('pdf', file);
+
+      console.log("📦 Checking FormData before sending...");
+      for (let [key, value] of formData.entries()) {
+        if (value instanceof File) {
+          console.log(`   🔹 Key: ${key}, File name: ${value.name}, type: ${value.type}, size: ${value.size}`);
+        } else {
+          console.log(`   🔹 Key: ${key}, Value: ${value}`);
+        }
+      }
+
+      console.log("🚀 Sending request to backend:", `${API_BASE}/memory/upload`);
 
       const response = await fetch(`${API_BASE}/memory/upload`, {
         method: 'POST',
         credentials: 'include',
-        body: formData
+        body: formData,
       });
 
-      const uploadResponse = await response.json();
+      console.log("📥 Backend responded, status:", response.status);
+
+      let uploadResponse;
+      try {
+        uploadResponse = await response.json();
+      } catch (parseErr) {
+        console.error("❌ Failed to parse JSON from backend:", parseErr);
+        throw new Error("Backend did not return JSON");
+      }
+
+      console.log("✅ Backend JSON:", uploadResponse);
+
       if (response.ok) {
-        console.log('📤 PDF Upload Response:', uploadResponse);
         showWebhookMessage('success', 'PDF uploaded successfully to server!');
         setPdfUploaded(true);
         setUploadMessage('PDF successfully uploaded to server! Processing...');
-        
+
         setTimeout(() => {
           setUploadMessage('PDF processing completed! Enabling input field in 5 seconds...');
           setTimeout(() => {
@@ -78,7 +105,7 @@ const Agent4 = () => {
       }
     } catch (error) {
       console.error('❌ Upload Error:', error);
-      showWebhookMessage('error', 'Failed to upload PDF. Please try again.');
+      showWebhookMessage('error', `Failed to upload PDF. ${error.message}`);
     } finally {
       setIsUploading(false);
     }
@@ -128,46 +155,33 @@ const Agent4 = () => {
 
   const pollForOutputData = async () => {
     let attempts = 0;
-    const maxAttempts = 15; // 5 minutes max (15 * 20 seconds)
+    const maxAttempts = 15;
     let isPollingActive = true;
 
     const checkOutputData = async () => {
       if (!isPollingActive) return;
 
       try {
-        // Poll both text-output and pdf-output
-        const [textRes, pdfRes] = await Promise.all([
-          fetch(`${API_BASE}/memory/text-output`, { credentials: 'include' }),
-          fetch(`${API_BASE}/memory/pdf-output`, { credentials: 'include' })
-        ]);
+        const textRes = await fetch(`${API_BASE}/memory/text-output`, { credentials: 'include' });
 
-        if (!textRes.ok || !pdfRes.ok) {
-          console.error('API Error - Status:', { text: textRes.status, pdf: pdfRes.status });
+        if (!textRes.ok) {
+          console.error('API Error - Status:', { text: textRes.status });
           throw new Error('API request failed');
         }
 
         const textContentType = textRes.headers.get('content-type');
-        const pdfContentType = pdfRes.headers.get('content-type');
-        if (!textContentType?.includes('application/json') || !pdfContentType?.includes('application/json')) {
-          console.error('Invalid content type:', { text: textContentType, pdf: pdfContentType });
+        if (!textContentType?.includes('application/json')) {
+          console.error('Invalid content type:', { text: textContentType });
           throw new Error('API returned non-JSON response');
         }
 
         const textData = await textRes.json();
-        const pdfData = await pdfRes.json();
-
-        console.log('📥 Polling Response:', { textData, pdfData });
+        console.log('📥 Polling Response:', { textData });
 
         const hasTextOutput = textData.output?.length > 0;
-        const hasPdfOutput = pdfData.pdfOutput?.length > 0;
 
-        if (hasTextOutput || hasPdfOutput) {
-          if (hasTextOutput) {
-            setTextOutput(textData.output.map(item => item.message).join('\n'));
-          }
-          if (hasPdfOutput) {
-            setPdfOutput(pdfData.pdfOutput);
-          }
+        if (hasTextOutput) {
+          setTextOutput(textData.output.map(item => item.message).join('\n'));
           setShowSkeleton(false);
           setDataLoaded(true);
           setIsPolling(false);
@@ -209,9 +223,14 @@ const Agent4 = () => {
     checkOutputData();
   };
 
+  // Improved Markdown detection to handle the specific response structure
+  const isMarkdown = (text) => {
+    return text.match(/^(#+\s|\*\*|\n\s*[-*]\s|\n\s*\d+\.\s|\n\n|\[.*\]\(.*\))/m) !== null;
+  };
+
   return (
-    <div className="px-4 md:px-14 lg:px-24 py-8">
-      <div className="max-w-6xl mx-auto">
+    <div className="px-4 md:px-14 lg:px-24 py-8 bg-gray-100 min-h-screen">
+      <div className="max-w-7xl mx-auto">
         {webhookMessage.show && (
           <div className={`fixed top-4 right-4 z-50 px-6 py-4 rounded-xl shadow-lg transition-all duration-300 ${
             webhookMessage.type === 'success' ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
@@ -232,7 +251,7 @@ const Agent4 = () => {
         )}
 
         <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-3 glass-card text-blue-700 shadow px-3 py-3 rounded-full text-sm font-semibold mb-6">
+          <div className="inline-flex items-center gap-3 bg-white/50 backdrop-blur-sm text-blue-700 shadow px-3 py-3 rounded-full text-sm font-semibold mb-6">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="24"
@@ -243,7 +262,7 @@ const Agent4 = () => {
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="lucide lucide-brain h-5 w-5"
+              className="h-5 w-5"
             >
               <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.88A2.5 2.5 0 0 1 4.5 9.5a2.5 2.5 0 0 1 5-2.5 2.5 2.5 0 0 1 5 2.5 2.5 2.5 0 0 1 5 2.5 2.5 2.5 0 0 1-2.96 3.88A2.5 2.5 0 0 1 12 19.94V4.5A2.5 2.5 0 0 1 9.5 2Z"/>
             </svg>
@@ -261,7 +280,7 @@ const Agent4 = () => {
           </p>
         </div>
         
-        <div className="glass-card rounded-3xl overflow-hidden shadow-soft-lg p-8 mb-8">
+        <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
           <h2 className="text-lg font-semibold text-gray-800 mb-6">About This Agent</h2>
           <p className="text-gray-700 mb-8 text-base">
             Agent 4 provides a persistent memory layer that maintains candidate data, preferences, 
@@ -292,7 +311,7 @@ const Agent4 = () => {
           </div>
         </div>
 
-        <div className="glass-card rounded-3xl overflow-hidden shadow-soft-lg p-8 mb-8">
+        <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
           <h2 className="text-lg font-semibold text-gray-800 mb-6">Memory Layer Interaction</h2>
           <p className="text-gray-600 mb-6 text-center">Upload a PDF and interact with the memory system</p>
           <div className="max-w-md mx-auto">
@@ -315,7 +334,7 @@ const Agent4 = () => {
                 <button 
                   onClick={uploadPDF}
                   disabled={isUploading || isSending || !file || pdfUploaded}
-                  className="w-full inline-flex items-center justify-center gap-2 font-medium transition-colors bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-6 py-3 rounded-xl shadow-colored"
+                  className="w-full inline-flex items-center justify-center gap-2 font-medium transition-colors bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-6 py-3 rounded-xl shadow"
                 >
                   {isUploading ? 'Uploading...' : pdfUploaded ? 'PDF Uploaded ✓' : 'Upload PDF to Server'}
                 </button>
@@ -349,60 +368,59 @@ const Agent4 = () => {
               <button 
                 onClick={sendToMemorySystem}
                 disabled={isUploading || isSending || isPolling || !inputValue.trim() || !inputEnabled}
-                className="inline-flex items-center justify-center gap-2 font-medium transition-colors bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white text-lg px-12 py-6 rounded-2xl shadow-colored"
+                className="inline-flex items-center justify-center gap-2 font-medium transition-colors bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white text-lg px-12 py-6 rounded-2xl shadow"
               >
                 {isSending ? 'Sending...' : isPolling ? 'Waiting for Output...' : !inputEnabled ? 'Input Disabled' : 'Send Input Message'}
               </button>
             </div>
             
-            {(dataLoaded || showSkeleton) && (
-              <>
-                <div className="mb-6">
-                  <label className="block mb-2 font-medium text-gray-700">Text Output</label>
-                  {showSkeleton ? (
-                    <div className="w-full min-h-[200px] px-4 py-3 border border-gray-300 rounded-xl bg-gray-50">
-                      <div className="animate-pulse">
-                        <div className="h-4 bg-gray-200 rounded mb-3"></div>
-                        <div className="h-4 bg-gray-200 rounded mb-3 w-3/4"></div>
-                        <div className="h-4 bg-gray-200 rounded mb-3 w-5/6"></div>
-                        <div className="h-4 bg-gray-200 rounded mb-3 w-2/3"></div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="w-full min-h-[200px] px-4 py-3 border border-gray-300 rounded-xl bg-gray-50 text-gray-700 whitespace-pre-wrap leading-relaxed">
-                      {textOutput || <span className="text-gray-400">Text response will appear here...</span>}
-                    </div>
-                  )}
-                </div>
-
-                <div className="mb-6">
-                  <label className="block mb-2 font-medium text-gray-700">PDF Output</label>
-                  {showSkeleton ? (
-                    <div className="w-full min-h-[100px] px-4 py-3 border border-gray-300 rounded-xl bg-gray-50">
-                      <div className="animate-pulse">
-                        <div className="h-4 bg-gray-200 rounded mb-3"></div>
-                        <div className="h-4 bg-gray-200 rounded mb-3 w-3/4"></div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="w-full min-h-[100px] px-4 py-3 border border-gray-300 rounded-xl bg-gray-50 text-gray-700">
-                      {pdfOutput.length > 0 ? (
-                        <ul className="space-y-2">
-                          {pdfOutput.map((item, index) => (
-                            <li key={index} className="text-gray-700">
-                              {item.message || 'PDF data received'}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <span className="text-gray-400">PDF response will appear here...</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
+            
           </div>
+          {(dataLoaded || showSkeleton) && (
+              <div className="mb-6">
+                <label className="block mb-2 font-medium text-gray-700 text-lg">Response</label>
+                {showSkeleton ? (
+                  <div className="w-full p-8 bg-gray-50 rounded-xl shadow-inner">
+                    <div className="animate-pulse space-y-4">
+                      <div className="h-6 bg-gray-200 rounded w-1/2"></div>
+                      <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                      <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+                      <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+                      <div className="h-4 bg-gray-200 rounded w-4/5"></div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="w-full p-8 bg-white rounded-xl shadow-inner prose prose-blue max-w-none">
+                    {textOutput ? (
+                      isMarkdown(textOutput) ? (
+                        <ReactMarkdown
+                          components={{
+                            h1: ({  ...props }) => <h1 className="text-3xl font-bold mt-6 mb-4 text-gray-900" {...props} />,
+                            h2: ({  ...props }) => <h2 className="text-2xl font-semibold mt-5 mb-3 text-gray-800" {...props} />,
+                            h3: ({  ...props }) => <h3 className="text-xl font-medium mt-4 mb-2 text-gray-700" {...props} />,
+                            p: ({  ...props }) => <p className="text-gray-700 mb-4 leading-relaxed" {...props} />,
+                            ul: ({  ...props }) => <ul className="list-disc list-inside mb-4 text-gray-700 pl-4" {...props} />,
+                            ol: ({ ...props }) => <ol className="list-decimal list-inside mb-4 text-gray-700 pl-4" {...props} />,
+                            li: ({ ...props }) => <li className="mb-2 pl-2" {...props} />,
+                            strong: ({  ...props }) => <strong className="font-semibold text-gray-900" {...props} />,
+                          }}
+                        >
+                          {textOutput}
+                        </ReactMarkdown>
+                      ) : (
+                        <div className="text-gray-700 whitespace-pre-wrap leading-relaxed">
+                          {textOutput.split('\n').map((line, index) => (
+                            <p key={index} className="mb-4">{line}</p>
+                          ))}
+                        </div>
+                      )
+                    ) : (
+                      <span className="text-gray-400 italic">Response will appear here...</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
         </div>
       </div>
     </div>

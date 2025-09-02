@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import apiService from "../../services/api";
-import ReactMarkdown from "react-markdown"; // for markdown rendering
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm"; // For GitHub Flavored Markdown
 
 const Agent2 = () => {
   const [inputText, setInputText] = useState('');
@@ -8,7 +9,7 @@ const Agent2 = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [message, setMessage] = useState({ show: false, type: "", text: "" });
   const [showSkeleton, setShowSkeleton] = useState(false);
-  const [finalBlog, setFinalBlog] = useState(null); // null unless blog special case
+  const [finalBlog, setFinalBlog] = useState(null);
 
   const showMessage = (type, text, duration = 3000) => {
     setMessage({ show: true, type, text });
@@ -26,7 +27,6 @@ const Agent2 = () => {
       try {
         const response = await apiService.apiCall("/blogs/blog-output");
         const data = response.data;
-        console.log("Polling response:", data);
 
         if (data?.message === "No output available") {
           attempts++;
@@ -36,23 +36,24 @@ const Agent2 = () => {
             setShowSkeleton(false);
             setIsLoading(false);
             isPollingActive = false;
-            showMessage("error", "Timeout: No data received after 5 minutes.");
-            setOutputText("No data available after timeout.");
+            showMessage("error", "Timeout: No data received.");
+            setOutputText("No data available.");
           }
           return;
         }
 
         if (data?.output) {
-          let outputBlog = data.output.output || data.output; // Fixed typo: data.ouput -> data.output
-          // Special case: blog structure with html + title
+          let outputBlog = data.output.output || data.output;
           if (outputBlog.title && outputBlog.html) {
             setFinalBlog({
               title: outputBlog.title,
               html: outputBlog.html,
-              images: [outputBlog.image1, outputBlog.image2].filter(Boolean)
+              images: [outputBlog.image1, outputBlog.image2].filter(Boolean),
             });
           } else {
-            setOutputText(outputBlog); // Assuming output is markdown if not a blog
+            // Clean up raw \n characters and normalize markdown
+            const cleanedOutput = outputBlog.replace(/\\n/g, '\n');
+            setOutputText(cleanedOutput);
           }
         }
 
@@ -79,7 +80,9 @@ const Agent2 = () => {
 
   useEffect(() => {
     let isPollingActive = true;
-    return () => { isPollingActive = false; };
+    return () => {
+      isPollingActive = false;
+    };
   }, []);
 
   const sendInput = async () => {
@@ -90,7 +93,7 @@ const Agent2 = () => {
     setIsLoading(true);
     setShowSkeleton(true);
     setOutputText("Waiting for AI response...");
-    setFinalBlog(null); // reset special case
+    setFinalBlog(null);
     try {
       await apiService.apiCall("/blogs/blog-input", {
         method: "POST",
@@ -106,35 +109,43 @@ const Agent2 = () => {
   };
 
   return (
-    <div className="px-4 md:px-14 lg:px-24 py-8">
-      <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center gap-3 glass-card text-blue-700 shadow px-3 py-2 rounded-full text-xs font-semibold mb-4">
-            Blog Writing
-          </div>
-          <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold mb-4 text-gray-900">
-            Blog Expert
+    <div className="px-4 sm:px-6 md:px-8 lg:px-12 py-6 bg-gray-100 min-h-screen">
+      <div className="max-w-3xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
+            Blog Generator
           </h1>
-          <p className="text-base md:text-lg text-gray-600 mb-6 max-w-2xl mx-auto">
-            Your go-to specialist for creating engaging and SEO-optimized blog content.
+          <p className="text-gray-600 text-sm sm:text-base">
+            Create engaging, SEO-optimized blog content effortlessly.
           </p>
         </div>
 
-        {/* Output section */}
-        <div className="glass-card rounded-3xl overflow-hidden shadow-soft-lg p-8 mb-8">
-          <h2 className="text-2xl font-semibold text-gray-800 mb-6">Output</h2>
+        {/* Output Section */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-800 mb-4">Blog Output</h2>
           {showSkeleton ? (
-            <div className="space-y-4 animate-pulse">
+            <div className="space-y-3 animate-pulse">
+              <div className="h-6 bg-gray-200 rounded w-1/2"></div>
+              <div className="h-4 bg-gray-200 rounded w-full"></div>
               <div className="h-4 bg-gray-200 rounded w-3/4"></div>
-              <div className="h-4 bg-gray-200 rounded"></div>
-              <div className="h-4 bg-gray-200 rounded w-5/6"></div>
             </div>
           ) : finalBlog ? (
-            <>
-              <h3 className="text-xl font-semibold mb-4">{finalBlog.title}</h3>
-              <div dangerouslySetInnerHTML={{ __html: finalBlog.html }} />
+            <div className="prose max-w-none">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-4">
+                {finalBlog.title}
+              </h1>
+              <div
+                className="text-gray-700 leading-relaxed text-sm sm:text-base"
+                dangerouslySetInnerHTML={{ __html: finalBlog.html }}
+              />
               {finalBlog.images?.map((img, index) => (
-                <img key={index} src={img} alt={`Blog image ${index + 1}`} className="my-4" />
+                <img
+                  key={index}
+                  src={img}
+                  alt={`Blog image ${index + 1}`}
+                  className="my-4 rounded-md w-full h-auto max-h-64 sm:max-h-80 object-cover"
+                />
               ))}
               <button
                 onClick={() => {
@@ -142,52 +153,54 @@ const Agent2 = () => {
                   setOutputText('');
                   setInputText('');
                 }}
-                className="bg-blue-600 text-white px-6 py-2 rounded-xl hover:bg-blue-700 font-medium mt-4"
+                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 text-sm sm:text-base"
               >
                 Generate New Blog
               </button>
-            </>
+            </div>
           ) : (
-            <div className="prose max-w-none">
-              <ReactMarkdown>{outputText}</ReactMarkdown>
+            <div className="prose max-w-none text-sm sm:text-base">
+              {/**** ✅ Detect if outputText contains HTML anywhere ****/}
+              {/<[a-z][\s\S]*>/i.test(outputText) ? (
+                <div dangerouslySetInnerHTML={{ __html: outputText }} />
+              ) : (
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {outputText}
+                </ReactMarkdown>
+              )}
             </div>
           )}
         </div>
 
-        {/* Input section (hidden only in blog special case) */}
+        {/* Input Section */}
         {!finalBlog && (
-          <div className="glass-card rounded-3xl overflow-hidden shadow-soft-lg p-8 mb-8">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Your Input</h2>
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-800 mb-4">Your Input</h2>
             <textarea
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
-              className="w-full px-4 py-3 border border-gray-300 rounded-xl resize-none min-h-[48px]"
-              placeholder="Enter your input here..."
-              aria-label="User input"
+              className="w-full p-3 border border-gray-300 rounded-md min-h-[100px] focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm sm:text-base"
+              placeholder="Enter your blog topic (e.g., 'Write about AI in technology')..."
+              aria-label="Blog input"
             />
             <div className="mt-4 flex justify-end">
               <button
                 onClick={sendInput}
                 disabled={isLoading}
-                className={`px-6 py-2 rounded-xl text-white font-medium ${
-                  isLoading ? "bg-blue-400" : "bg-blue-600 hover:bg-blue-700"
-                }`}
+                className={`px-4 py-2 rounded-md text-white text-sm sm:text-base ${isLoading ? "bg-blue-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+                  }`}
               >
-                {isLoading ? "Processing..." : "Send"}
+                {isLoading ? "Generating..." : "Generate Blog"}
               </button>
             </div>
           </div>
         )}
 
+        {/* Toast Notification */}
         {message.show && (
           <div
-            className={`fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
-              message.type === "error"
-                ? "bg-red-100 text-red-800"
-                : message.type === "success"
-                ? "bg-green-100 text-green-800"
-                : "bg-blue-100 text-blue-800"
-            }`}
+            className={`fixed bottom-4 right-4 p-3 rounded-md shadow-md text-white text-sm sm:text-base ${message.type === "error" ? "bg-red-500" : "bg-green-500"
+              }`}
           >
             {message.text}
           </div>

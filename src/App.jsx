@@ -15,7 +15,6 @@ import ProgressDashboardLearningLoop from "./pages/Agents/ProgressDashboardLearn
 import KeywordManager from "./pages/Agents/KeywordManager"
 import CampaignCalendarScheduler from "./pages/Agents/CampaignCalendarScheduler"
 import PerformanceAnalyzer from "./pages/Agents/PerformanceAnalyzer"
-import EngagementBot from "./pages/Agents/EngagementBot"
 import PersonaBuilder from "./pages/Agents/PersonaBuilder"
 import GoogleAdsGenerator from "./pages/Agents/GoogleAdsGenerator"
 import Login from "./pages/Login"
@@ -139,26 +138,10 @@ const AppContent = () => {
               }
             />
             <Route
-              path="/engagement-bot"
-              element={
-                <ProtectedRoute>
-                  <EngagementBot />
-                </ProtectedRoute>
-              }
-            />
-            <Route
               path="/persona-builder"
               element={
                 <ProtectedRoute>
                   <PersonaBuilder />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/google-ads-generator"
-              element={
-                <ProtectedRoute>
-                  <GoogleAdsGenerator />
                 </ProtectedRoute>
               }
             />
