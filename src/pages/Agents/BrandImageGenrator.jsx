@@ -486,7 +486,7 @@ const BrandImageGenerator = () => {
                     className="bg-white rounded-2xl overflow-hidden shadow-lg transition-transform hover:scale-105 cursor-pointer w-64"
                     onClick={() => handleImageClick(image)}
                   >
-                    <div className="relative h-48 bg-gray-100 flex items-center justify-center">
+                    <div className="relative h-48 bg-gray-100 w-full h-full">
                       <img
                         src={image.url}
                         alt={image.title}
@@ -495,10 +495,7 @@ const BrandImageGenerator = () => {
                         onLoad={() => console.log(`✅ Image ${index} loaded successfully`)}
                       />
                     </div>
-                    <div className="p-4">
-                      <h3 className="text-sm font-medium text-gray-800 truncate">{image.title}</h3>
-                      <p className="text-xs text-gray-500 mt-1 truncate">{image.description}</p>
-                    </div>
+                    
                   </div>
                   <div className="mt-4 flex flex-col gap-2">
                     <button 
