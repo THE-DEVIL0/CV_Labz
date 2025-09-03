@@ -51,44 +51,47 @@ const BrandImageGenerator = () => {
   };
 
   const handleUploadToDrive = async (image) => {
-    if (uploadingIds.includes(image.id)) return;
-    setUploadingIds(prev => [...prev, image.id]);
+  if (uploadingIds.includes(image.id)) return;
+  setUploadingIds(prev => [...prev, image.id]);
 
-    try {
-      console.log('📤 Uploading to Drive:', image);
-      
-      if (!image.url || !image.title) {
-        showNotification('error', 'Invalid image data for upload.');
-        return;
-      }
+  try {
+    console.log('📤 Uploading to Drive:', image);
+    
+    // Fix: Use image.url.url if nested, fallback to image.url
+    const imageUrl = image.url.url || image.url;
 
-      showNotification('info', 'Uploading to Google Drive...');
-
-      const response = await fetch(`${API_BASE}/image/upload-to-drive`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageUrl: image.url,
-          fileName: image.title
-        }),
-      });
-
-      const data = await response.json();
-      console.log('📨 Drive response:', data);
-
-      if (data.error) {
-        throw new Error(data.error);
-      }
-
-      showNotification('success', `Uploaded! View in Drive`);
-      window.open(data.webViewLink, '_blank');
-    } catch (error) {
-      console.error('Drive upload error:', error);
-      showNotification('error', error.message || 'Failed to upload to Google Drive.');
-    } finally {
-      setUploadingIds(prev => prev.filter(id => id !== image.id));
+    if (!imageUrl || !image.title) {
+      showNotification('error', 'Invalid image data for upload.');
+      return;
     }
-  };
+
+    showNotification('info', 'Uploading to Google Drive...');
+
+    const response = await fetch(`${API_BASE}/image/upload-to-drive`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageUrl: imageUrl, // Use the string URL
+        fileName: image.title
+      }),
+    });
+
+    const data = await response.json();
+    console.log('📨 Drive response:', data);
+
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
+    showNotification('success', `Uploaded! View in Drive`);
+    window.open(data.webViewLink, '_blank');
+  } catch (error) {
+    console.error('Drive upload error:', error);
+    showNotification('error', error.message || 'Failed to upload to Google Drive.');
+  } finally {
+    setUploadingIds(prev => prev.filter(id => id !== image.id));
+  }
+};
 
   const generateAutoImages = async (e) => {
   e.preventDefault();

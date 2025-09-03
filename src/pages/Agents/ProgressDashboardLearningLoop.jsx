@@ -16,39 +16,8 @@ const InterviewFeedbackDashboard = () => {
     }, 3000);
   };
 
-  // Send POST request when component loads
-  useEffect(() => {
-    const triggerDataGeneration = async () => {
-      try {
-        const response = await fetch(`${API_BASE}/progress-data-req`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include'
-        });
 
-        if (response.ok) {
-          console.log('Data generation triggered successfully');
-        } else {
-          console.error('Failed to trigger data generation');
-        }
-      } catch (error) {
-        console.error('Error triggering data generation:', error);
-      }
-    };
-
-    triggerDataGeneration();
-  }, []);
-
-  const startPolling = async () => {
-    setIsPolling(true);
-    setPollingAttempts(0);
-    showMessage('info', 'Fetching your interview feedback...');
-    pollForData();
-  };
-
-  const pollForData = async () => {
+   const pollForData = async () => {
     const maxAttempts = 15;
     
     if (pollingAttempts >= maxAttempts) {
@@ -96,6 +65,39 @@ const InterviewFeedbackDashboard = () => {
     }
   };
 
+
+   const startPolling = async () => {
+    setIsPolling(true);
+    setPollingAttempts(0);
+    showMessage('info', 'Fetching your interview feedback...');
+    pollForData();
+  };
+
+  // Send POST request when component loads
+  const triggerDataGeneration = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/progress-data-req`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          credentials: 'include'
+        });
+
+        if (response.ok) {
+          console.log('Data generation triggered successfully');
+          startPolling();
+        } else {
+          console.error('Failed to trigger data generation');
+        }
+      } catch (error) {
+        console.error('Error triggering data generation:', error);
+      }
+    };
+
+ 
+
+ 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 py-8 px-4">
       <div className="max-w-4xl mx-auto">
@@ -133,7 +135,7 @@ const InterviewFeedbackDashboard = () => {
               </p>
             </div>
             <button 
-              onClick={startPolling}
+              onClick={triggerDataGeneration}
               disabled={isPolling || feedbackData}
               className="mt-4 md:mt-0 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-blue-400 transition-colors"
             >
