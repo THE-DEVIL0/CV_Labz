@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState} from 'react';
 
 const InterviewFeedbackDashboard = () => {
   const [feedbackData, setFeedbackData] = useState(null);
@@ -17,53 +17,61 @@ const InterviewFeedbackDashboard = () => {
   };
 
 
-   const pollForData = async () => {
-    const maxAttempts = 15;
-    
-    if (pollingAttempts >= maxAttempts) {
-      showMessage('error', 'Timeout: No feedback data received after multiple attempts.');
-      setIsPolling(false);
-      return;
-    }
+ const pollForData = async () => {
+  const maxAttempts = 15;
 
-    try {
-      const response = await fetch(`${API_BASE}/progress-data`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        
-        if (data.output && data.output.review) {
-          setFeedbackData(data.output);
-          setIsPolling(false);
-          showMessage('success', 'Feedback data loaded successfully!');
-          return;
-        } else if (data.message === "No data available") {
-          // Data not ready yet, continue polling
-          setPollingAttempts(prev => prev + 1);
-          setTimeout(pollForData, 10000);
-        } else {
-          // Unexpected response, stop polling
-          showMessage('error', 'Unexpected response from server.');
-          setIsPolling(false);
-        }
-      } else {
-        // HTTP error, stop polling
-        showMessage('error', 'Server error while fetching data.');
+  if (pollingAttempts >= maxAttempts) {
+    showMessage('error', 'Timeout: No feedback data received after multiple attempts.');
+    setIsPolling(false);
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/progress-data`);
+
+    if (response.ok) {
+      const data = await response.json();
+
+      console.debug("Backend response:", data);
+
+      if (data && (data.weaknesses || data.suggestions)) {
+        const parsedData = {
+          user_id: data.user_id,
+          average_rating: data.average_rating || 0,
+          weaknesses: Array.isArray(data.weaknesses) ? data.weaknesses : [],
+          suggestions: Array.isArray(data.suggestions) ? data.suggestions : []
+        };
+
+        console.log("m", parsedData);
+
+        setFeedbackData(parsedData);
         setIsPolling(false);
-      }
-    } catch (error) {
-      console.error('Error polling for data:', error);
-      setPollingAttempts(prev => prev + 1);
-      
-      // Only continue polling for network errors, not for other errors
-      if (pollingAttempts < maxAttempts - 1) {
+        showMessage('success', 'Feedback data loaded successfully!');
+        return;
+      } else if (data.message === "No data available") {
+        setPollingAttempts(prev => prev + 1);
         setTimeout(pollForData, 10000);
       } else {
-        showMessage('error', 'Failed to retrieve feedback data after multiple attempts.');
+        showMessage('error', 'Unexpected response from server.');
         setIsPolling(false);
       }
+    } else {
+      showMessage('error', 'Server error while fetching data.');
+      setIsPolling(false);
     }
-  };
+  } catch (error) {
+    console.error('Error polling for data:', error);
+    setPollingAttempts(prev => prev + 1);
+
+    if (pollingAttempts < maxAttempts - 1) {
+      setTimeout(pollForData, 10000);
+    } else {
+      showMessage('error', 'Failed to retrieve feedback data after multiple attempts.');
+      setIsPolling(false);
+    }
+  }
+};
+
 
 
    const startPolling = async () => {
@@ -163,17 +171,7 @@ const InterviewFeedbackDashboard = () => {
         {feedbackData && (
           <div className="space-y-6">
             {/* Overall Review */}
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                <svg className="w-5 h-5 mr-2 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-                </svg>
-                Overall Review
-              </h2>
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <p className="text-gray-700">{feedbackData.review}</p>
-              </div>
-            </div>
+            
 
             {/* Weaknesses */}
             <div className="bg-white rounded-xl shadow-md p-6">
@@ -223,27 +221,10 @@ const InterviewFeedbackDashboard = () => {
               </div>
             </div>
 
-            {/* Action Plan */}
-            <div className="bg-white rounded-xl shadow-md p-6">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center">
-                <svg className="w-5 h-5 mr-2 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M12.316 3.051a1 1 0 01.633 1.265l-4 12a1 1 0 11-1.898-.632l4-12a1 1 0 011.265-.633zM5.707 6.293a1 1 0 010 1.414L3.414 10l2.293 2.293a1 1 0 11-1.414 1.414l-3-3a1 1 0 010-1.414l3-3a1 1 0 011.414 0zm8.586 0a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 11-1.414-1.414L16.586 10l-2.293-2.293a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-                Action Plan
-              </h2>
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <p className="text-gray-700 mb-4">
-                  Based on your feedback, here's a recommended action plan:
-                </p>
-                <ol className="list-decimal list-inside space-y-2 ml-4">
-                  <li className="text-gray-700">Focus on one improvement area at a time</li>
-                  <li className="text-gray-700">Schedule regular practice sessions</li>
-                  <li className="text-gray-700">Seek feedback after implementing changes</li>
-                  <li className="text-gray-700">Track your progress over time</li>
-                </ol>
-              </div>
+           
+            
             </div>
-          </div>
+          
         )}
 
         {/* Empty State */}

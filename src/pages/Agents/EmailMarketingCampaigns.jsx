@@ -85,8 +85,8 @@ const Agent1 = () => {
       if (!isPollingActive) return; // Stop if polling was cancelled
 
       try {
-        const aEndpoint = currentMode === 'single' ? '/emails/email-a' : '/emails/bulk-email-a';
-        const bEndpoint = currentMode === 'single' ? '/emails/email-b' : '/emails/bulk-email-b';
+        const aEndpoint = currentMode === 'single' ? '/emails/emailA' : '/emails/bulk-email-a';
+        const bEndpoint = currentMode === 'single' ? '/emails/emailA' : '/emails/bulk-email-b';
         const resultsEndpoint = currentMode === 'single' ? '/emails/email-results' : '/emails/bulk-email-results';
 
         const emailARes = await fetch(`${API_BASE}${aEndpoint}`);
@@ -210,7 +210,7 @@ const Agent1 = () => {
           campaignName: campaignDetails.campaignName,
           email: campaignDetails.email
         };
-        response = await fetch(`${API_BASE}/emails/send-single-email`, {
+        response = await fetch(`${API_BASE}/emails/send-single-mail`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
