@@ -1,3 +1,4 @@
+
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -41,7 +42,7 @@ export default function CVBuilder() {
   // Track manual changes to prevent auto-analysis after applying suggestions
   const manualChanges = useRef({
     summary: false,
-    skills: false,
+    skills: {},
     cover: false,
     experiences: {},
     education: {},
@@ -53,7 +54,7 @@ export default function CVBuilder() {
   const [eduCounter, setEduCounter] = useState(0)
   const [certCounter, setCertCounter] = useState(0)
 
-  const timeouts = useRef({});
+  const timeouts = useRef({})
 
   // Debounced analysis function
   const analyzeText = useCallback(async (fieldId, text, role, type) => {
@@ -88,11 +89,16 @@ export default function CVBuilder() {
     } finally {
       setLoadingStates(prev => ({ ...prev, [fieldId]: false }))
       if (fieldId.startsWith('exp-')) {
-        const id = parseInt(fieldId.slice(4))
-        manualChanges.current.experiences[id] = false
+        const [, expId, , bulletIdx] = fieldId.split('-')
+        manualChanges.current.experiences[expId] = manualChanges.current.experiences[expId] || {}
+        manualChanges.current.experiences[expId][bulletIdx] = false
       } else if (fieldId.startsWith('edu-')) {
-        const id = parseInt(fieldId.slice(4))
-        manualChanges.current.education[id] = false
+        const [, eduId, , detailIdx] = fieldId.split('-')
+        manualChanges.current.education[eduId] = manualChanges.current.education[eduId] || {}
+        manualChanges.current.education[eduId][detailIdx] = false
+      } else if (fieldId.startsWith('skill-')) {
+        const [, skillIdx] = fieldId.split('-')
+        manualChanges.current.skills[skillIdx] = false
       } else {
         manualChanges.current[fieldId] = false
       }
@@ -101,20 +107,33 @@ export default function CVBuilder() {
 
   // Handle text changes for string fields
   const handleTextChange = (fieldId, value, setter, type) => {
-    setter(value);
-    manualChanges.current[fieldId] = true;
-    const role = type === 'cover' ? coverRole : cvRole;
+    setter(value)
+    manualChanges.current[fieldId] = true
+    const role = type === 'cover' ? coverRole : cvRole
 
     if (timeouts.current[fieldId]) {
-      clearTimeout(timeouts.current[fieldId]);
+      clearTimeout(timeouts.current[fieldId])
     }
 
     timeouts.current[fieldId] = setTimeout(() => {
-      analyzeText(fieldId, value, role, type);
-    }, 600);
-  };
+      analyzeText(fieldId, value, role, type)
+    }, 600)
+  }
 
   // Functions for experiences
+  const addExperience = () => {
+    const newId = expCounter + 1
+    setExpCounter(newId)
+    setExperiences(prev => [...prev, { id: newId, title: '', company: '', dates: '', bullets: [] }])
+    manualChanges.current.experiences[newId] = {}
+  }
+
+  const updateExperience = (id, field, value) => {
+    setExperiences(prev => prev.map(exp =>
+      exp.id === id ? { ...exp, [field]: value } : exp
+    ))
+  }
+
   const addBulletToExp = (id) => {
     setExperiences(prev => prev.map(exp =>
       exp.id === id ? { ...exp, bullets: [...exp.bullets, ''] } : exp
@@ -125,17 +144,50 @@ export default function CVBuilder() {
     setExperiences(prev => prev.map(exp =>
       exp.id === id ? { ...exp, bullets: exp.bullets.map((b, i) => i === idx ? value : b) } : exp
     ))
-    manualChanges.current.experiences[id] = true
+    const fieldId = `exp-${id}-bullet-${idx}`
+    manualChanges.current.experiences[id] = manualChanges.current.experiences[id] || {}
+    manualChanges.current.experiences[id][idx] = true
+    const role = cvRole
+    if (timeouts.current[fieldId]) {
+      clearTimeout(timeouts.current[fieldId])
+    }
+    timeouts.current[fieldId] = setTimeout(() => {
+      analyzeText(fieldId, value, role, 'experience')
+    }, 600)
   }
 
   const removeExpBullet = (id, idx) => {
     setExperiences(prev => prev.map(exp =>
       exp.id === id ? { ...exp, bullets: exp.bullets.filter((_, i) => i !== idx) } : exp
     ))
-    manualChanges.current.experiences[id] = true
+    const fieldId = `exp-${id}-bullet-${idx}`
+    delete manualChanges.current.experiences[id][idx]
+    setFeedbacks(prev => {
+      const newFeedbacks = { ...prev }
+      delete newFeedbacks[fieldId]
+      return newFeedbacks
+    })
+    setLoadingStates(prev => {
+      const newLoading = { ...prev }
+      delete newLoading[fieldId]
+      return newLoading
+    })
   }
 
   // Functions for education
+  const addEducation = () => {
+    const newId = eduCounter + 1
+    setEduCounter(newId)
+    setEducation(prev => [...prev, { id: newId, degree: '', school: '', dates: '', details: [] }])
+    manualChanges.current.education[newId] = {}
+  }
+
+  const updateEducation = (id, field, value) => {
+    setEducation(prev => prev.map(edu =>
+      edu.id === id ? { ...edu, [field]: value } : edu
+    ))
+  }
+
   const addDetailToEdu = (id) => {
     setEducation(prev => prev.map(edu =>
       edu.id === id ? { ...edu, details: [...edu.details, ''] } : edu
@@ -146,29 +198,83 @@ export default function CVBuilder() {
     setEducation(prev => prev.map(edu =>
       edu.id === id ? { ...edu, details: edu.details.map((d, i) => i === idx ? value : d) } : edu
     ))
-    manualChanges.current.education[id] = true
+    const fieldId = `edu-${id}-detail-${idx}`
+    manualChanges.current.education[id] = manualChanges.current.education[id] || {}
+    manualChanges.current.education[id][idx] = true
+    const role = cvRole
+    if (timeouts.current[fieldId]) {
+      clearTimeout(timeouts.current[fieldId])
+    }
+    timeouts.current[fieldId] = setTimeout(() => {
+      analyzeText(fieldId, value, role, 'education')
+    }, 600)
   }
 
   const removeEduDetail = (id, idx) => {
     setEducation(prev => prev.map(edu =>
       edu.id === id ? { ...edu, details: edu.details.filter((_, i) => i !== idx) } : edu
     ))
-    manualChanges.current.education[id] = true
+    const fieldId = `edu-${id}-detail-${idx}`
+    delete manualChanges.current.education[id][idx]
+    setFeedbacks(prev => {
+      const newFeedbacks = { ...prev }
+      delete newFeedbacks[fieldId]
+      return newFeedbacks
+    })
+    setLoadingStates(prev => {
+      const newLoading = { ...prev }
+      delete newLoading[fieldId]
+      return newLoading
+    })
   }
 
   // Functions for skills
   const addSkill = () => {
     setSkills([...skills, ''])
+    manualChanges.current.skills[skills.length] = false
   }
 
   const updateSkill = (idx, value) => {
-    setSkills(skills.map((s, i) => i === idx ? value : s))
-    manualChanges.current.skills = true
+    setSkills(prev => prev.map((s, i) => i === idx ? value : s))
+    const fieldId = `skill-${idx}`
+    manualChanges.current.skills[idx] = true
+    const role = cvRole
+    if (timeouts.current[fieldId]) {
+      clearTimeout(timeouts.current[fieldId])
+    }
+    timeouts.current[fieldId] = setTimeout(() => {
+      analyzeText(fieldId, value, role, 'skills')
+    }, 600)
   }
 
   const removeSkill = (idx) => {
-    setSkills(skills.filter((_, i) => i !== idx))
-    manualChanges.current.skills = true
+    setSkills(prev => prev.filter((_, i) => i !== idx))
+    const fieldId = `skill-${idx}`
+    delete manualChanges.current.skills[idx]
+    setFeedbacks(prev => {
+      const newFeedbacks = { ...prev }
+      delete newFeedbacks[fieldId]
+      return newFeedbacks
+    })
+    setLoadingStates(prev => {
+      const newLoading = { ...prev }
+      delete newLoading[fieldId]
+      return newLoading
+    })
+  }
+
+  // Functions for certifications
+  const addCertification = () => {
+    const newId = certCounter + 1
+    setCertCounter(newId)
+    setCertifications(prev => [...prev, { id: newId, name: '', issuer: '', date: '' }])
+    manualChanges.current.certifications[newId] = false
+  }
+
+  const updateCertification = (id, field, value) => {
+    setCertifications(prev => prev.map(cert =>
+      cert.id === id ? { ...cert, [field]: value } : cert
+    ))
   }
 
   // Debounced effect for analysis
@@ -192,27 +298,31 @@ export default function CVBuilder() {
     }
 
     // Skills
-    const skillsText = skills.join('\n')
-    if (manualChanges.current.skills && skillsText.trim()) {
-      scheduleAnalysis('skills', skillsText, cvRole, 'skills')
-    }
+    skills.forEach((skill, idx) => {
+      const fieldId = `skill-${idx}`
+      if (manualChanges.current.skills[idx] && skill.trim()) {
+        scheduleAnalysis(fieldId, skill, cvRole, 'skills')
+      }
+    })
 
     // Experiences
     experiences.forEach(exp => {
-      const fieldId = `exp-${exp.id}`
-      const expText = exp.bullets.join('\n')
-      if (manualChanges.current.experiences[exp.id] && expText.trim()) {
-        scheduleAnalysis(fieldId, expText, cvRole, 'experience')
-      }
+      exp.bullets.forEach((bullet, idx) => {
+        const fieldId = `exp-${exp.id}-bullet-${idx}`
+        if (manualChanges.current.experiences[exp.id]?.[idx] && bullet.trim()) {
+          scheduleAnalysis(fieldId, bullet, cvRole, 'experience')
+        }
+      })
     })
 
     // Education
     education.forEach(edu => {
-      const fieldId = `edu-${edu.id}`
-      const eduText = edu.details.join('\n')
-      if (manualChanges.current.education[edu.id] && eduText.trim()) {
-        scheduleAnalysis(fieldId, eduText, cvRole, 'education')
-      }
+      edu.details.forEach((detail, idx) => {
+        const fieldId = `edu-${edu.id}-detail-${idx}`
+        if (manualChanges.current.education[edu.id]?.[idx] && detail.trim()) {
+          scheduleAnalysis(fieldId, detail, cvRole, 'education')
+        }
+      })
     })
 
     return () => {
@@ -220,45 +330,46 @@ export default function CVBuilder() {
     }
   }, [summary, skills, coverText, experiences, education, cvRole, coverRole, analyzeText])
 
-  // Parse markdown or text to list
-  const parseToList = (text) => {
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
-    return lines.map(line => line.replace(/^[-*]\s*/, ''))
-  }
-
   // Apply content function
   const applyContent = (fieldId, content) => {
-    const isListField = fieldId === 'skills' || fieldId.startsWith('exp-') || fieldId.startsWith('edu-')
-    const value = isListField ? parseToList(content) : content
-
     if (fieldId === 'summary') {
-      setSummary(value)
+      setSummary(content)
     } else if (fieldId === 'cover') {
-      setCoverText(value)
-    } else if (fieldId === 'skills') {
-      setSkills(value)
+      setCoverText(content)
+    } else if (fieldId.startsWith('skill-')) {
+      const [, skillIdx] = fieldId.split('-')
+      const idx = parseInt(skillIdx)
+      setSkills(prev => prev.map((s, i) => i === idx ? content.replace(/^- /, '').trim() : s))
     } else if (fieldId.startsWith('exp-')) {
-      const id = parseInt(fieldId.slice(4))
+      const [, expId, , bulletIdx] = fieldId.split('-')
+      const id = parseInt(expId)
+      const idx = parseInt(bulletIdx)
       setExperiences(prev => prev.map(exp =>
-        exp.id === id ? { ...exp, bullets: value } : exp
+        exp.id === id ? { ...exp, bullets: exp.bullets.map((b, i) => i === idx ? content.replace(/^- /, '').trim() : b) } : exp
       ))
     } else if (fieldId.startsWith('edu-')) {
-      const id = parseInt(fieldId.slice(4))
+      const [, eduId, , detailIdx] = fieldId.split('-')
+      const id = parseInt(eduId)
+      const idx = parseInt(detailIdx)
       setEducation(prev => prev.map(edu =>
-        edu.id === id ? { ...edu, details: value } : edu
+        edu.id === id ? { ...edu, details: edu.details.map((d, i) => i === idx ? content.replace(/^- /, '').trim() : d) } : edu
       ))
     }
 
     setAppliedStates(prev => ({ ...prev, [fieldId]: true }))
     setFeedbacks(prev => ({ ...prev, [fieldId]: null }))
 
-    // Reset manual change
     if (fieldId.startsWith('exp-')) {
-      const id = parseInt(fieldId.slice(4))
-      manualChanges.current.experiences[id] = false
+      const [, expId, , bulletIdx] = fieldId.split('-')
+      manualChanges.current.experiences[expId] = manualChanges.current.experiences[expId] || {}
+      manualChanges.current.experiences[expId][bulletIdx] = false
     } else if (fieldId.startsWith('edu-')) {
-      const id = parseInt(fieldId.slice(4))
-      manualChanges.current.education[id] = false
+      const [, eduId, , detailIdx] = fieldId.split('-')
+      manualChanges.current.education[eduId] = manualChanges.current.education[eduId] || {}
+      manualChanges.current.education[eduId][detailIdx] = false
+    } else if (fieldId.startsWith('skill-')) {
+      const [, skillIdx] = fieldId.split('-')
+      manualChanges.current.skills[skillIdx] = false
     } else {
       manualChanges.current[fieldId] = false
     }
@@ -266,45 +377,6 @@ export default function CVBuilder() {
     setTimeout(() => {
       setAppliedStates(prev => ({ ...prev, [fieldId]: false }))
     }, 2000)
-  }
-
-  // Dynamic entry management
-  const addExperience = () => {
-    const newId = expCounter + 1
-    setExpCounter(newId)
-    setExperiences(prev => [...prev, { id: newId, title: '', company: '', dates: '', bullets: [] }])
-    manualChanges.current.experiences[newId] = false
-  }
-
-  const updateExperience = (id, field, value) => {
-    setExperiences(prev => prev.map(exp =>
-      exp.id === id ? { ...exp, [field]: value } : exp
-    ))
-  }
-
-  const addEducation = () => {
-    const newId = eduCounter + 1
-    setEduCounter(newId)
-    setEducation(prev => [...prev, { id: newId, degree: '', school: '', dates: '', details: [] }])
-    manualChanges.current.education[newId] = false
-  }
-
-  const updateEducation = (id, field, value) => {
-    setEducation(prev => prev.map(edu =>
-      edu.id === id ? { ...edu, [field]: value } : edu
-    ))
-  }
-
-  const addCertification = () => {
-    const newId = certCounter + 1
-    setCertCounter(newId)
-    setCertifications(prev => [...prev, { id: newId, name: '', issuer: '', date: '' }])
-  }
-
-  const updateCertification = (id, field, value) => {
-    setCertifications(prev => prev.map(cert =>
-      cert.id === id ? { ...cert, [field]: value } : cert
-    ))
   }
 
   // Check if text contains markdown
@@ -359,7 +431,7 @@ export default function CVBuilder() {
                       <ul className="list-disc list-inside text-gray-700 mb-3">
                         {exp.bullets.map((b, i) => (
                           <li key={i}>
-                            <ReactMarkdown components={{ p: ({ node, ...props }) => <span {...props} /> }}>{b}</ReactMarkdown>
+                            <ReactMarkdown components={{ p: ({ ...props }) => <span {...props} /> }}>{b}</ReactMarkdown>
                           </li>
                         ))}
                       </ul>
@@ -384,7 +456,7 @@ export default function CVBuilder() {
                       <ul className="list-disc list-inside text-gray-700 mb-3">
                         {edu.details.map((d, i) => (
                           <li key={i}>
-                            <ReactMarkdown components={{ p: ({ node, ...props }) => <span {...props} /> }}>{d}</ReactMarkdown>
+                            <ReactMarkdown components={{ p: ({ ...props }) => <span {...props} /> }}>{d}</ReactMarkdown>
                           </li>
                         ))}
                       </ul>
@@ -404,7 +476,7 @@ export default function CVBuilder() {
               {skills.map((s, i) => (
                 <div key={i} className="flex items-center">
                   <span className="w-2 h-2 bg-gray-500 rounded-full mr-2" />
-                  <ReactMarkdown components={{ p: ({ node, ...props }) => <span {...props} /> }}>
+                  <ReactMarkdown components={{ p: ({ ...props }) => <span {...props} /> }}>
                     {s}
                   </ReactMarkdown>
                 </div>
@@ -412,7 +484,6 @@ export default function CVBuilder() {
             </div>
           </>
         )}
-
 
         {certifications.length > 0 && (
           <>
@@ -653,22 +724,28 @@ export default function CVBuilder() {
                                       onChange={(e) => updateExperience(exp.id, 'dates', e.target.value)}
                                       placeholder="Dates (e.g., June 2019 - Present)"
                                     />
-                                    <div className="space-y-2">
+                                    <div className="space-y-4">
                                       {exp.bullets.map((bullet, idx) => (
-                                        <div key={idx} className="flex items-end gap-2">
-                                          <Textarea
-                                            value={bullet}
-                                            onChange={(e) => updateExpBullet(exp.id, idx, e.target.value)}
-                                            placeholder="Enter bullet point..."
-                                            className="min-h-[60px] resize-y"
+                                        <div key={idx} className="space-y-2">
+                                          <div className="flex items-end gap-2">
+                                            <Textarea
+                                              value={bullet}
+                                              onChange={(e) => updateExpBullet(exp.id, idx, e.target.value)}
+                                              placeholder="Enter bullet point..."
+                                              className="min-h-[60px] resize-y"
+                                            />
+                                            <Button
+                                              variant="destructive"
+                                              size="sm"
+                                              onClick={() => removeExpBullet(exp.id, idx)}
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                          </div>
+                                          <FeedbackPanel
+                                            fieldId={`exp-${exp.id}-bullet-${idx}`}
+                                            onApply={(content) => applyContent(`exp-${exp.id}-bullet-${idx}`, content)}
                                           />
-                                          <Button
-                                            variant="destructive"
-                                            size="sm"
-                                            onClick={() => removeExpBullet(exp.id, idx)}
-                                          >
-                                            <Trash2 className="w-4 h-4" />
-                                          </Button>
                                         </div>
                                       ))}
                                       <Button
@@ -680,10 +757,6 @@ export default function CVBuilder() {
                                         Add Bullet Point
                                       </Button>
                                     </div>
-                                    <FeedbackPanel
-                                      fieldId={`exp-${exp.id}`}
-                                      onApply={(content) => applyContent(`exp-${exp.id}`, content)}
-                                    />
                                   </div>
                                 </Card>
                               ))}
@@ -717,22 +790,28 @@ export default function CVBuilder() {
                                       onChange={(e) => updateEducation(edu.id, 'dates', e.target.value)}
                                       placeholder="Dates"
                                     />
-                                    <div className="space-y-2">
+                                    <div className="space-y-4">
                                       {edu.details.map((detail, idx) => (
-                                        <div key={idx} className="flex items-end gap-2">
-                                          <Textarea
-                                            value={detail}
-                                            onChange={(e) => updateEduDetail(edu.id, idx, e.target.value)}
-                                            placeholder="Enter detail/achievement..."
-                                            className="min-h-[60px] resize-y"
+                                        <div key={idx} className="space-y-2">
+                                          <div className="flex items-end gap-2">
+                                            <Textarea
+                                              value={detail}
+                                              onChange={(e) => updateEduDetail(edu.id, idx, e.target.value)}
+                                              placeholder="Enter detail/achievement..."
+                                              className="min-h-[60px] resize-y"
+                                            />
+                                            <Button
+                                              variant="destructive"
+                                              size="sm"
+                                              onClick={() => removeEduDetail(edu.id, idx)}
+                                            >
+                                              <Trash2 className="w-4 h-4" />
+                                            </Button>
+                                          </div>
+                                          <FeedbackPanel
+                                            fieldId={`edu-${edu.id}-detail-${idx}`}
+                                            onApply={(content) => applyContent(`edu-${edu.id}-detail-${idx}`, content)}
                                           />
-                                          <Button
-                                            variant="destructive"
-                                            size="sm"
-                                            onClick={() => removeEduDetail(edu.id, idx)}
-                                          >
-                                            <Trash2 className="w-4 h-4" />
-                                          </Button>
                                         </div>
                                       ))}
                                       <Button
@@ -744,10 +823,6 @@ export default function CVBuilder() {
                                         Add Detail
                                       </Button>
                                     </div>
-                                    <FeedbackPanel
-                                      fieldId={`edu-${edu.id}`}
-                                      onApply={(content) => applyContent(`edu-${edu.id}`, content)}
-                                    />
                                   </div>
                                 </Card>
                               ))}
@@ -758,21 +833,27 @@ export default function CVBuilder() {
                             <AccordionTrigger className="text-lg font-semibold">
                               Skills
                             </AccordionTrigger>
-                            <AccordionContent className="space-y-2">
+                            <AccordionContent className="space-y-4">
                               {skills.map((skill, idx) => (
-                                <div key={idx} className="flex items-center gap-2">
-                                  <Input
-                                    value={skill}
-                                    onChange={(e) => updateSkill(idx, e.target.value)}
-                                    placeholder="Enter skill..."
+                                <div key={idx} className="space-y-2">
+                                  <div className="flex items-center gap-2">
+                                    <Input
+                                      value={skill}
+                                      onChange={(e) => updateSkill(idx, e.target.value)}
+                                      placeholder="Enter skill..."
+                                    />
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => removeSkill(idx)}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </div>
+                                  <FeedbackPanel
+                                    fieldId={`skill-${idx}`}
+                                    onApply={(content) => applyContent(`skill-${idx}`, content)}
                                   />
-                                  <Button
-                                    variant="destructive"
-                                    size="sm"
-                                    onClick={() => removeSkill(idx)}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
                                 </div>
                               ))}
                               <Button
@@ -783,10 +864,6 @@ export default function CVBuilder() {
                                 <Plus className="w-4 h-4" />
                                 Add Skill
                               </Button>
-                              <FeedbackPanel
-                                fieldId="skills"
-                                onApply={(content) => applyContent('skills', content)}
-                              />
                             </AccordionContent>
                           </AccordionItem>
 
@@ -890,7 +967,6 @@ export default function CVBuilder() {
                         </div>
                       </CardContent>
                     </Card>
-
                   </div>
                 </div>
               </TabsContent>

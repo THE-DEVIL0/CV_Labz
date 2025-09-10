@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import ReactMarkdown from 'react-markdown';
-import rehypeRaw from 'rehype-raw';
+import ReactHtmlParser from 'html-react-parser';
 
 const Agent1 = () => {
   // State for campaign input
@@ -10,13 +9,11 @@ const Agent1 = () => {
   });
   const [selectedFile, setSelectedFile] = useState(null);
   const [activeTab, setActiveTab] = useState('single');
-
   // Dashboard and details state
   const [campaigns, setCampaigns] = useState([]);
   const [isDashboardLoading, setIsDashboardLoading] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState(null);
-
   // Email content state
   const [emailBodyA, setEmailBodyA] = useState({ subject: 'Loading...', body: 'Loading...', clicks: 0 });
   const [emailBodyB, setEmailBodyB] = useState({ subject: 'Loading...', body: 'Loading...', clicks: 0 });
@@ -25,10 +22,8 @@ const Agent1 = () => {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [showSkeleton, setShowSkeleton] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
-
   // Ref for polling control
   const pollingRef = useRef({ email: false, dashboard: false });
-
   const API_BASE = "https://delightful-passion-production.up.railway.app/emails";
 
   // Handle input changes
@@ -76,24 +71,38 @@ const Agent1 = () => {
     console.log('[Reset Interface] Interface reset');
   };
 
-  // Copy text to clipboard
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text)
+  // Copy text to clipboard (strip HTML tags for plain text)
+  const copyToClipboard = (html) => {
+    const plainText = html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    navigator.clipboard.writeText(plainText)
       .then(() => showWebhookMessage('success', 'Content copied to clipboard!'))
       .catch(() => showWebhookMessage('error', 'Failed to copy content.'));
+  };
+
+  // Handle tab change with reset
+  const handleTabChange = (tab) => {
+    if (tab !== activeTab) {
+      setActiveTab(tab);
+      resetInterface();
+      console.debug(`[Tab Change] Switched to ${tab} tab with UI reset`);
+    }
+  };
+
+  // Replace placeholders in HTML content
+  const replacePlaceholders = (html) => {
+    if (!html || typeof html !== 'string') return 'No content available.';
+    return html.replace(/\[Recipient's Name\]/g, 'Customer');
   };
 
   // Poll for email data
   const pollForEmailData = async () => {
     const maxAttempts = 15; // 5 minutes (15 * 20 seconds)
     let attempts = 0;
-
     const checkEmailData = async () => {
       if (!pollingRef.current.email) {
         console.log('[Email Polling] Stopped due to cancellation');
         return;
       }
-
       try {
         if (activeTab === 'single') {
           console.debug('[Email Polling] Fetching from /emailA');
@@ -101,7 +110,6 @@ const Agent1 = () => {
           if (!response.ok) throw new Error(`API error - EmailA: ${response.status}`);
           const data = await response.json();
           console.debug('[Email Polling] EmailA response:', data);
-
           if (data?.message === 'No data available') {
             attempts++;
             if (attempts < maxAttempts && pollingRef.current.email) {
@@ -115,11 +123,10 @@ const Agent1 = () => {
             }
             return;
           }
-
           const email = data[0] || {};
           setEmailBodyA({
-            subject: email.subject || 'Email Subject',
-            body: email.body || 'No content available.',
+            subject: email.subject || 'No Subject',
+            body: replacePlaceholders(email.body) || 'No content available.',
             clicks: email.clicks || 0,
           });
           setShowSkeleton(false);
@@ -133,15 +140,12 @@ const Agent1 = () => {
             fetch(`${API_BASE}/bulk-email-a`, { credentials: 'include' }),
             fetch(`${API_BASE}/bulk-email-b`, { credentials: 'include' }),
           ]);
-
           if (!responseA.ok || !responseB.ok) {
             throw new Error(`API error - EmailA: ${responseA.status}, EmailB: ${responseB.status}`);
           }
-
           const [dataA, dataB] = await Promise.all([responseA.json(), responseB.json()]);
           console.debug('[Email Polling] EmailA response:', dataA);
           console.debug('[Email Polling] EmailB response:', dataB);
-
           if (dataA?.message === 'No data available' || dataB?.message === 'No data available') {
             attempts++;
             if (attempts < maxAttempts && pollingRef.current.email) {
@@ -155,15 +159,14 @@ const Agent1 = () => {
             }
             return;
           }
-
           setEmailBodyA({
-            subject: dataA[0]?.Subject || 'Email A Subject',
-            body: dataA[0]?.Body || 'No content available.',
+            subject: dataA[0]?.Subject || 'No Subject',
+            body: replacePlaceholders(dataA[0]?.Body) || 'No content available.',
             clicks: dataA[0]?.clicks || 0,
           });
           setEmailBodyB({
-            subject: dataB[0]?.Subject || 'Email B Subject',
-            body: dataB[0]?.Body || 'No content available.',
+            subject: dataB[0]?.Subject || 'No Subject',
+            body: replacePlaceholders(dataB[0]?.Body) || 'No content available.',
             clicks: dataB[0]?.clicks || 0,
           });
           setShowSkeleton(false);
@@ -179,9 +182,9 @@ const Agent1 = () => {
           setTimeout(checkEmailData, 20000);
         } else {
           setShowSkeleton(false);
-          setEmailBodyA({ subject: 'Email A Subject', body: 'Error loading data.', clicks: 0 });
+          setEmailBodyA({ subject: 'No Subject', body: 'Error loading data.', clicks: 0 });
           if (activeTab === 'bulk') {
-            setEmailBodyB({ subject: 'Email B Subject', body: 'Error loading data.', clicks: 0 });
+            setEmailBodyB({ subject: 'No Subject', body: 'Error loading data.', clicks: 0 });
           }
           setDataLoaded(true);
           setIsPolling(false);
@@ -190,7 +193,6 @@ const Agent1 = () => {
         }
       }
     };
-
     setIsPolling(true);
     pollingRef.current.email = true;
     checkEmailData();
@@ -200,20 +202,17 @@ const Agent1 = () => {
   const pollForDashboardData = async () => {
     const maxAttempts = 15; // 5 minutes (15 * 20 seconds)
     let attempts = 0;
-
     const checkDashboardData = async () => {
       if (!pollingRef.current.dashboard) {
         console.log('[Dashboard Polling] Stopped due to cancellation');
         return;
       }
-
       try {
         console.debug('[Dashboard Polling] Fetching from /dashboard-data');
         const response = await fetch(`${API_BASE}/dashboard-data`, { credentials: 'include' });
         if (!response.ok) throw new Error(`API error - Status: ${response.status}`);
         const data = await response.json();
         console.debug('[Dashboard Polling] Response:', data);
-
         if (data?.message === 'Waiting for all dashboard data to be collected') {
           attempts++;
           if (attempts < maxAttempts && pollingRef.current.dashboard) {
@@ -227,7 +226,6 @@ const Agent1 = () => {
           }
           return;
         }
-
         // Validate campaign data
         const validCampaigns = data.filter(camp =>
           camp &&
@@ -237,7 +235,6 @@ const Agent1 = () => {
           camp.campaign &&
           camp.subject
         );
-
         if (validCampaigns.length > 0) {
           setCampaigns(validCampaigns);
           setShowDashboard(true);
@@ -270,7 +267,6 @@ const Agent1 = () => {
         }
       }
     };
-
     setIsDashboardLoading(true);
     pollingRef.current.dashboard = true;
     checkDashboardData();
@@ -286,11 +282,9 @@ const Agent1 = () => {
       console.warn('[Send Request] Validation failed: Missing required fields');
       return;
     }
-
     setIsLoading(true);
     setShowSkeleton(true);
     setDataLoaded(false);
-
     try {
       let response;
       if (activeTab === 'single') {
@@ -314,7 +308,6 @@ const Agent1 = () => {
           credentials: 'include',
         });
       }
-
       if (response.ok) {
         showWebhookMessage('success', 'Request sent successfully! Waiting for email content...');
         pollForEmailData();
@@ -341,7 +334,7 @@ const Agent1 = () => {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
       });
-      if (!response.ok) throw new Error(`Failed to fetch campaigns: ${response.status}`);
+      if (!response.ok) throw new Error(`Fetch campaigns failed: ${response.status}`);
       pollForDashboardData();
     } catch (error) {
       console.error('[Fetch Campaigns] Error:', error.message);
@@ -522,16 +515,16 @@ const Agent1 = () => {
             {selectedCampaign.versions.length > 0 ? (
               <div className={selectedCampaign.isSingle ? 'max-w-2xl mx-auto' : 'grid md:grid-cols-2 gap-8'}>
                 {selectedCampaign.isSingle ? (
-                  <div className="border border-gray-200 rounded-xl shadow-sm p-6">
+                  <div className="border border-gray-200 rounded-xl shadow-sm p-6 bg-gradient-to-br from-blue-50 to-white">
                     <h3 className="text-lg font-semibold text-blue-800 mb-2">Single Campaign</h3>
-                    <p className="text-gray-600 mb-2"><strong>Subject:</strong> {selectedCampaign.versions[0]?.subject || 'No Subject'}</p>
-                    <div className="bg-gray-50 p-6 rounded-lg mb-4 prose prose-sm max-w-none">
-                      <ReactMarkdown rehypePlugins={[rehypeRaw]}>{selectedCampaign.versions[0]?.body || 'No Content'}</ReactMarkdown>
+                    <p className="text-gray-700 mb-2 font-medium break-words"><strong>Subject:</strong> {selectedCampaign.versions[0]?.subject || 'No Subject'}</p>
+                    <div className="bg-white p-6 rounded-lg mb-4 prose prose-sm max-w-none max-h-96 overflow-y-auto shadow-inner border border-gray-100">
+                      {ReactHtmlParser(replacePlaceholders(selectedCampaign.versions[0]?.body || 'No Content'))}
                     </div>
                     <p className="text-gray-600 mb-4">Clicks: {selectedCampaign.versions[0]?.clicks || 0}</p>
                     <button
-                      onClick={() => copyToClipboard(selectedCampaign.versions[0]?.body || '')}
-                      className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                      onClick={() => copyToClipboard(selectedCampaign.voices[0]?.body || '')}
+                      className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                     >
                       Copy Content
                     </button>
@@ -541,16 +534,16 @@ const Agent1 = () => {
                     const data = selectedCampaign.versions.find(v => v.version === version);
                     if (!data) return null;
                     return (
-                      <div key={version} className="border border-gray-200 rounded-xl shadow-sm p-6">
+                      <div key={version} className="border border-gray-200 rounded-xl shadow-sm p-6 bg-gradient-to-br from-blue-50 to-white">
                         <h3 className="text-lg font-semibold text-blue-800 mb-2">Version {version}</h3>
-                        <p className="text-gray-600 mb-2"><strong>Subject:</strong> {data.subject || 'No Subject'}</p>
-                        <div className="bg-gray-50 p-6 rounded-lg mb-4 prose prose-sm max-w-none">
-                          <ReactMarkdown rehypePlugins={[rehypeRaw]}>{data.body || 'No Content'}</ReactMarkdown>
+                        <p className="text-gray-700 mb-2 font-medium break-words"><strong>Subject:</strong> {data.subject || 'No Subject'}</p>
+                        <div className="bg-white p-6 rounded-lg mb-4 prose prose-sm max-w-none max-h-96 overflow-y-auto shadow-inner border border-gray-100">
+                          {ReactHtmlParser(replacePlaceholders(data.body || 'No Content'))}
                         </div>
                         <p className="text-gray-600 mb-4">Clicks: {data.clicks || 0}</p>
                         <button
                           onClick={() => copyToClipboard(data.body || '')}
-                          className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                          className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                         >
                           Copy Content
                         </button>
@@ -572,7 +565,7 @@ const Agent1 = () => {
             <div className="flex justify-center mb-6">
               <div className="inline-flex bg-white rounded-full p-1 shadow-sm">
                 <button
-                  onClick={() => setActiveTab('single')}
+                  onClick={() => handleTabChange('single')}
                   className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${
                     activeTab === 'single' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
                   }`}
@@ -580,7 +573,7 @@ const Agent1 = () => {
                   Single Email
                 </button>
                 <button
-                  onClick={() => setActiveTab('bulk')}
+                  onClick={() => handleTabChange('bulk')}
                   className={`px-6 py-2 rounded-full text-sm font-medium transition-colors ${
                     activeTab === 'bulk' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
                   }`}
@@ -655,31 +648,31 @@ const Agent1 = () => {
               </div>
             </div>
             <div className={activeTab === 'single' ? 'max-w-2xl mx-auto' : 'grid md:grid-cols-2 gap-8'}>
-              <div className="border border-gray-200 rounded-xl shadow-sm p-6">
+              <div className="border border-gray-200 rounded-xl shadow-sm p-6 bg-gradient-to-br from-blue-50 to-white">
                 <h3 className="text-lg font-semibold text-blue-800 mb-2">{activeTab === 'single' ? 'Email Content' : 'Version A'}</h3>
-                <p className="text-gray-600 mb-2"><strong>Subject:</strong> {getSubjectPreview(emailBodyA.subject)}</p>
-                <div className="bg-gray-50 p-6 rounded-lg mb-4">
-                  <ReactMarkdown rehypePlugins={[rehypeRaw]}>{getBodyPreview(emailBodyA.body)}</ReactMarkdown>
+                <p className="text-gray-700 mb-2 font-medium break-words"><strong>Subject:</strong> {emailBodyA.subject || 'No Subject'}</p>
+                <div className="bg-white p-6 rounded-lg mb-4 prose prose-sm max-w-none max-h-96 overflow-y-auto shadow-inner border border-gray-100">
+                  {ReactHtmlParser(replacePlaceholders(emailBodyA.body || 'No Content'))}
                 </div>
                 <p className="text-gray-600 mb-4">Clicks: {emailBodyA.clicks || 0}</p>
                 <button
                   onClick={() => copyToClipboard(emailBodyA.body)}
-                  className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                  className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                 >
                   Copy Content
                 </button>
               </div>
               {activeTab === 'bulk' && (
-                <div className="border border-gray-200 rounded-xl shadow-sm p-6">
+                <div className="border border-gray-200 rounded-xl shadow-sm p-6 bg-gradient-to-br from-green-50 to-white">
                   <h3 className="text-lg font-semibold text-green-800 mb-2">Version B</h3>
-                  <p className="text-gray-600 mb-2"><strong>Subject:</strong> {getSubjectPreview(emailBodyB.subject)}</p>
-                  <div className="bg-gray-50 p-6 rounded-lg mb-4">
-                    <ReactMarkdown rehypePlugins={[rehypeRaw]}>{getBodyPreview(emailBodyB.body)}</ReactMarkdown>
+                  <p className="text-gray-700 mb-2 font-medium break-words"><strong>Subject:</strong> {emailBodyB.subject || 'No Subject'}</p>
+                  <div className="bg-white p-6 rounded-lg mb-4 prose prose-sm max-w-none max-h-96 overflow-y-auto shadow-inner border border-gray-100">
+                    {ReactHtmlParser(replacePlaceholders(emailBodyB.body || 'No Content'))}
                   </div>
                   <p className="text-gray-600 mb-4">Clicks: {emailBodyB.clicks || 0}</p>
                   <button
                     onClick={() => copyToClipboard(emailBodyB.body)}
-                    className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                    className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                   >
                     Copy Content
                   </button>
