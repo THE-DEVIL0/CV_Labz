@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -7,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Loader2, FileText, Mail, Plus, CheckCircle, Lightbulb, Info, Trash2 } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
+import ReactHtmlParser from 'html-react-parser'
 
 export default function CVBuilder() {
   // Personal Information State
@@ -56,6 +55,14 @@ export default function CVBuilder() {
 
   const timeouts = useRef({})
 
+  // Replace placeholders in HTML content
+  const replacePlaceholders = (html) => {
+    if (!html || typeof html !== 'string') return 'No content available.'
+    return html
+      .replace(/\[Your Name\]/g, personalInfo.name || 'Candidate')
+      .replace(/\[Recipient's Name\]/g, 'Hiring Manager')
+  }
+
   // Debounced analysis function
   const analyzeText = useCallback(async (fieldId, text, role, type) => {
     if (!text.trim()) {
@@ -74,7 +81,16 @@ export default function CVBuilder() {
       })
 
       const data = await response.json()
-      setFeedbacks(prev => ({ ...prev, [fieldId]: data }))
+      setFeedbacks(prev => ({
+        ...prev,
+        [fieldId]: {
+          ...data,
+          feedback: replacePlaceholders(data.feedback),
+          suggestion: replacePlaceholders(data.suggestion),
+          formatted: replacePlaceholders(data.formatted),
+          additional_suggestions: data.additional_suggestions?.map(sug => replacePlaceholders(sug)) || []
+        }
+      }))
     } catch (error) {
       setFeedbacks(prev => ({
         ...prev,
@@ -103,7 +119,7 @@ export default function CVBuilder() {
         manualChanges.current[fieldId] = false
       }
     }
-  }, [])
+  }, [personalInfo.name])
 
   // Handle text changes for string fields
   const handleTextChange = (fieldId, value, setter, type) => {
@@ -277,7 +293,7 @@ export default function CVBuilder() {
     ))
   }
 
-  // Debounced effect for analysis
+  // Debounced effect for analysis (excluding skills)
   useEffect(() => {
     const timeouts = {}
 
@@ -296,14 +312,6 @@ export default function CVBuilder() {
     if (manualChanges.current.cover && coverText.trim()) {
       scheduleAnalysis('cover', coverText, coverRole, 'cover')
     }
-
-    // Skills
-    skills.forEach((skill, idx) => {
-      const fieldId = `skill-${idx}`
-      if (manualChanges.current.skills[idx] && skill.trim()) {
-        scheduleAnalysis(fieldId, skill, cvRole, 'skills')
-      }
-    })
 
     // Experiences
     experiences.forEach(exp => {
@@ -328,7 +336,7 @@ export default function CVBuilder() {
     return () => {
       Object.values(timeouts).forEach(clearTimeout)
     }
-  }, [summary, skills, coverText, experiences, education, cvRole, coverRole, analyzeText])
+  }, [summary, coverText, experiences, education, cvRole, coverRole, analyzeText])
 
   // Apply content function
   const applyContent = (fieldId, content) => {
@@ -379,43 +387,24 @@ export default function CVBuilder() {
     }, 2000)
   }
 
-  // Check if text contains markdown
-  const containsMarkdown = (text) => {
-    if (!text || typeof text !== 'string') return false
-    const markdownPatterns = [
-      /#{1,6}\s/,               // Headers
-      /\*\*.+?\*\*/,            // Bold
-      /\*.+?\*/,                // Italic
-      /\[.+?\]\(.+?\)/,         // Links
-      /^- /m,                   // List items
-      /`{1,3}.+?`{1,3}/,       // Code
-      />\s/                     // Blockquotes
-    ]
-    return markdownPatterns.some(pattern => pattern.test(text))
-  }
-
   // Generate CV Preview
   const generatePreview = () => {
     let html = ''
 
     if (personalInfo.name) html += `<h2 class="text-2xl font-bold text-blue-600 mb-2">${personalInfo.name}</h2>`
-    if (personalInfo.headline) html += `<h4 className="text-lg font-semibold text-gray-700 mb-3">${personalInfo.headline}</h4>`
+    if (personalInfo.headline) html += `<h4 class="text-lg font-semibold text-gray-700 mb-3">${personalInfo.headline}</h4>`
 
     const contact = [personalInfo.email, personalInfo.phone, personalInfo.location, personalInfo.linkedin].filter(Boolean)
-    if (contact.length) html += `<p className="text-sm text-gray-600 mb-4">${contact.join(' | ')}</p>`
+    if (contact.length) html += `<p class="text-sm text-gray-600 mb-4">${contact.join(' | ')}</p>`
 
     return (
       <div className="prose prose-sm max-w-none">
-        {html && <div dangerouslySetInnerHTML={{ __html: html }} />}
+        {html && <div>{ReactHtmlParser(replacePlaceholders(html))}</div>}
 
         {summary && (
           <>
             <h3 className="text-lg font-semibold text-gray-800 mt-4 mb-2">Professional Summary</h3>
-            {containsMarkdown(summary) ? (
-              <ReactMarkdown>{summary}</ReactMarkdown>
-            ) : (
-              <p className="text-gray-700 mb-4">{summary.replace(/\n/g, '<br>')}</p>
-            )}
+            <div className="text-gray-700 mb-4">{ReactHtmlParser(replacePlaceholders(summary.replace(/\n/g, '<br>')))}</div>
           </>
         )}
 
@@ -430,9 +419,7 @@ export default function CVBuilder() {
                     {exp.bullets.length > 0 && (
                       <ul className="list-disc list-inside text-gray-700 mb-3">
                         {exp.bullets.map((b, i) => (
-                          <li key={i}>
-                            <ReactMarkdown components={{ p: ({ ...props }) => <span {...props} /> }}>{b}</ReactMarkdown>
-                          </li>
+                          <li key={i}>{ReactHtmlParser(replacePlaceholders(b))}</li>
                         ))}
                       </ul>
                     )}
@@ -455,9 +442,7 @@ export default function CVBuilder() {
                     {edu.details.length > 0 && (
                       <ul className="list-disc list-inside text-gray-700 mb-3">
                         {edu.details.map((d, i) => (
-                          <li key={i}>
-                            <ReactMarkdown components={{ p: ({ ...props }) => <span {...props} /> }}>{d}</ReactMarkdown>
-                          </li>
+                          <li key={i}>{ReactHtmlParser(replacePlaceholders(d))}</li>
                         ))}
                       </ul>
                     )}
@@ -472,13 +457,11 @@ export default function CVBuilder() {
         {skills.length > 0 && (
           <>
             <h3 className="text-lg font-semibold text-gray-800 mt-4 mb-2">Skills</h3>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-gray-700 mb-4">
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-gray-700 mb-4">
               {skills.map((s, i) => (
                 <div key={i} className="flex items-center">
                   <span className="w-2 h-2 bg-gray-500 rounded-full mr-2" />
-                  <ReactMarkdown components={{ p: ({ ...props }) => <span {...props} /> }}>
-                    {s}
-                  </ReactMarkdown>
+                  {ReactHtmlParser(replacePlaceholders(s))}
                 </div>
               ))}
             </div>
@@ -541,7 +524,7 @@ export default function CVBuilder() {
             <Info className="w-4 h-4 mr-2 mt-0.5 text-blue-600" />
             <div>
               <p className="font-semibold text-gray-800">Feedback:</p>
-              <p className="text-gray-700 text-sm">{feedback.feedback}</p>
+              <p className="text-gray-700 text-sm">{ReactHtmlParser(feedback.feedback)}</p>
             </div>
           </div>
 
@@ -549,7 +532,7 @@ export default function CVBuilder() {
             <Lightbulb className="w-4 h-4 mr-2 mt-0.5 text-green-600" />
             <div>
               <p className="font-semibold text-gray-800">Suggestion:</p>
-              <p className="text-green-700 text-sm italic">{feedback.suggestion}</p>
+              <p className="text-green-700 text-sm italic">{ReactHtmlParser(feedback.suggestion)}</p>
             </div>
           </div>
 
@@ -559,7 +542,7 @@ export default function CVBuilder() {
               <ul className="space-y-1">
                 {feedback.additional_suggestions.map((sug, idx) => (
                   <li key={idx} className="text-xs bg-green-100 p-2 rounded text-green-800">
-                    {sug}
+                    {ReactHtmlParser(sug)}
                   </li>
                 ))}
               </ul>
@@ -571,7 +554,7 @@ export default function CVBuilder() {
             <div>
               <p className="font-semibold text-gray-800">Formatted:</p>
               <div className="text-blue-700 text-sm font-medium">
-                <ReactMarkdown>{feedback.formatted}</ReactMarkdown>
+                {ReactHtmlParser(feedback.formatted)}
               </div>
             </div>
           </div>
@@ -636,7 +619,7 @@ export default function CVBuilder() {
                             value={cvRole}
                             onChange={(e) => setCvRole(e.target.value)}
                             placeholder="e.g., Software Engineer"
-                            className="border-gray-300"
+                            className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           />
                         </div>
 
@@ -650,31 +633,37 @@ export default function CVBuilder() {
                                 value={personalInfo.name}
                                 onChange={(e) => setPersonalInfo(prev => ({ ...prev, name: e.target.value }))}
                                 placeholder="Full Name"
+                                className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                               />
                               <Input
                                 value={personalInfo.headline}
                                 onChange={(e) => setPersonalInfo(prev => ({ ...prev, headline: e.target.value }))}
                                 placeholder="Professional Headline (e.g., Senior Software Engineer)"
+                                className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                               />
                               <Input
                                 value={personalInfo.email}
                                 onChange={(e) => setPersonalInfo(prev => ({ ...prev, email: e.target.value }))}
                                 placeholder="Email"
+                                className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                               />
                               <Input
                                 value={personalInfo.phone}
                                 onChange={(e) => setPersonalInfo(prev => ({ ...prev, phone: e.target.value }))}
                                 placeholder="Phone"
+                                className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                               />
                               <Input
                                 value={personalInfo.location}
                                 onChange={(e) => setPersonalInfo(prev => ({ ...prev, location: e.target.value }))}
                                 placeholder="Location (e.g., City, State)"
+                                className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                               />
                               <Input
                                 value={personalInfo.linkedin}
                                 onChange={(e) => setPersonalInfo(prev => ({ ...prev, linkedin: e.target.value }))}
                                 placeholder="LinkedIn URL"
+                                className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                               />
                             </AccordionContent>
                           </AccordionItem>
@@ -688,7 +677,7 @@ export default function CVBuilder() {
                                 value={summary}
                                 onChange={(e) => handleTextChange('summary', e.target.value, setSummary, 'summary')}
                                 placeholder="Write your professional summary here..."
-                                className="min-h-[150px] resize-y"
+                                className="min-h-[150px] resize-y border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400"
                               />
                               <FeedbackPanel
                                 fieldId="summary"
@@ -702,7 +691,7 @@ export default function CVBuilder() {
                               Work Experience
                             </AccordionTrigger>
                             <AccordionContent className="space-y-4">
-                              <Button onClick={addExperience} className="flex items-center gap-2">
+                              <Button onClick={addExperience} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700">
                                 <Plus className="w-4 h-4" />
                                 Add Job
                               </Button>
@@ -713,16 +702,19 @@ export default function CVBuilder() {
                                       value={exp.title}
                                       onChange={(e) => updateExperience(exp.id, 'title', e.target.value)}
                                       placeholder="Job Title"
+                                      className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                     <Input
                                       value={exp.company}
                                       onChange={(e) => updateExperience(exp.id, 'company', e.target.value)}
                                       placeholder="Company"
+                                      className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                     <Input
                                       value={exp.dates}
                                       onChange={(e) => updateExperience(exp.id, 'dates', e.target.value)}
                                       placeholder="Dates (e.g., June 2019 - Present)"
+                                      className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                     <div className="space-y-4">
                                       {exp.bullets.map((bullet, idx) => (
@@ -732,7 +724,7 @@ export default function CVBuilder() {
                                               value={bullet}
                                               onChange={(e) => updateExpBullet(exp.id, idx, e.target.value)}
                                               placeholder="Enter bullet point..."
-                                              className="min-h-[60px] resize-y"
+                                              className="min-h-[60px] resize-y border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400"
                                             />
                                             <Button
                                               variant="destructive"
@@ -768,7 +760,7 @@ export default function CVBuilder() {
                               Education
                             </AccordionTrigger>
                             <AccordionContent className="space-y-4">
-                              <Button onClick={addEducation} className="flex items-center gap-2">
+                              <Button onClick={addEducation} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700">
                                 <Plus className="w-4 h-4" />
                                 Add Education
                               </Button>
@@ -779,16 +771,19 @@ export default function CVBuilder() {
                                       value={edu.degree}
                                       onChange={(e) => updateEducation(edu.id, 'degree', e.target.value)}
                                       placeholder="Degree"
+                                      className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                     <Input
                                       value={edu.school}
                                       onChange={(e) => updateEducation(edu.id, 'school', e.target.value)}
                                       placeholder="School/University"
+                                      className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                     <Input
                                       value={edu.dates}
                                       onChange={(e) => updateEducation(edu.id, 'dates', e.target.value)}
                                       placeholder="Dates"
+                                      className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                     <div className="space-y-4">
                                       {edu.details.map((detail, idx) => (
@@ -798,7 +793,7 @@ export default function CVBuilder() {
                                               value={detail}
                                               onChange={(e) => updateEduDetail(edu.id, idx, e.target.value)}
                                               placeholder="Enter detail/achievement..."
-                                              className="min-h-[60px] resize-y"
+                                              className="min-h-[60px] resize-y border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400"
                                             />
                                             <Button
                                               variant="destructive"
@@ -841,6 +836,7 @@ export default function CVBuilder() {
                                       value={skill}
                                       onChange={(e) => updateSkill(idx, e.target.value)}
                                       placeholder="Enter skill..."
+                                      className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400"
                                     />
                                     <Button
                                       variant="destructive"
@@ -872,7 +868,7 @@ export default function CVBuilder() {
                               Certifications
                             </AccordionTrigger>
                             <AccordionContent className="space-y-4">
-                              <Button onClick={addCertification} className="flex items-center gap-2">
+                              <Button onClick={addCertification} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700">
                                 <Plus className="w-4 h-4" />
                                 Add Certification
                               </Button>
@@ -883,16 +879,19 @@ export default function CVBuilder() {
                                       value={cert.name}
                                       onChange={(e) => updateCertification(cert.id, 'name', e.target.value)}
                                       placeholder="Certification Name"
+                                      className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                     <Input
                                       value={cert.issuer}
                                       onChange={(e) => updateCertification(cert.id, 'issuer', e.target.value)}
                                       placeholder="Issuer"
+                                      className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                     <Input
                                       value={cert.date}
                                       onChange={(e) => updateCertification(cert.id, 'date', e.target.value)}
                                       placeholder="Date"
+                                      className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                     />
                                   </div>
                                 </Card>
@@ -911,9 +910,7 @@ export default function CVBuilder() {
                         <CardTitle className="text-xl">CV Preview</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="prose prose-sm max-w-none">
-                          {generatePreview()}
-                        </div>
+                        {generatePreview()}
                       </CardContent>
                     </Card>
                   </div>
@@ -934,6 +931,7 @@ export default function CVBuilder() {
                             value={coverRole}
                             onChange={(e) => setCoverRole(e.target.value)}
                             placeholder="e.g., Marketing Manager"
+                            className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                           />
                         </div>
                         <div>
@@ -944,7 +942,7 @@ export default function CVBuilder() {
                             value={coverText}
                             onChange={(e) => handleTextChange('cover', e.target.value, setCoverText, 'cover')}
                             placeholder="Enter your cover letter here...&#10;Example:&#10;Dear Hiring Manager,&#10;I am excited to apply for the position..."
-                            className="min-h-[400px] resize-y"
+                            className="min-h-[400px] resize-y border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400"
                           />
                         </div>
                       </CardContent>
@@ -962,9 +960,7 @@ export default function CVBuilder() {
                         <CardTitle className="text-xl">Cover Letter Preview</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="prose prose-sm">
-                          <ReactMarkdown>{coverText}</ReactMarkdown>
-                        </div>
+                        <div className="prose prose-sm">{ReactHtmlParser(replacePlaceholders(coverText))}</div>
                       </CardContent>
                     </Card>
                   </div>
