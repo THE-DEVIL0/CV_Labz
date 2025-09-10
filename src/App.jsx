@@ -121,14 +121,14 @@ const AppContent = () => {
                 </ProtectedRoute>
               }
             />
-            <Route
+            {/* <Route
               path="/campaign-calendar-scheduler"
               element={
                 <ProtectedRoute>
                   <CampaignCalendarScheduler />
                 </ProtectedRoute>
               }
-            />
+            /> */}
             <Route
               path="/performance-analyzer"
               element={

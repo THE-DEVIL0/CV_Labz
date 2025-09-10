@@ -47,7 +47,7 @@ const Sidebar = () => {
     { path: "/ai-interview-simulator", label: "AI Interview Simulator", icon: MicIcon },
     { path: "/progress-dashboard-learning-loop", label: "Progress Dashboard & Learning Loop", icon: TrendingUpIcon },
     { path: "/keyword-manager", label: "Keyword Manager", icon: TagIcon },
-    { path: "/campaign-calendar-scheduler", label: "Campaign Calendar & Scheduler", icon: CalendarIcon },
+    // { path: "/campaign-calendar-scheduler", label: "Campaign Calendar & Scheduler", icon: CalendarIcon },
     { path: "/performance-analyzer", label: "Performance Analyzer", icon: BarChartIcon },
     { path: "/persona-builder", label: "Persona Builder & Targeting Optimizer", icon: UsersIcon }
   ]
