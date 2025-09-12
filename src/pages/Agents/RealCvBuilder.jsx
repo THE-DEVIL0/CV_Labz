@@ -6,7 +6,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Loader2, FileText, Mail, Plus, CheckCircle, Lightbulb, Info, Trash2 } from 'lucide-react'
-import ReactHtmlParser from 'html-react-parser'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+
+// Custom components for Markdown rendering
+const components = {
+  ul: ({ children }) => <ul className="list-disc list-inside text-gray-700 mb-3">{children}</ul>,
+  li: ({ children }) => <li>{children}</li>,
+  p: ({ children }) => <p className="text-gray-700 mb-2">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+}
 
 export default function CVBuilder() {
   // Personal Information State
@@ -55,10 +65,10 @@ export default function CVBuilder() {
 
   const timeouts = useRef({})
 
-  // Replace placeholders in HTML content
-  const replacePlaceholders = (html) => {
-    if (!html || typeof html !== 'string') return 'No content available.'
-    return html
+  // Replace placeholders in Markdown content
+  const replacePlaceholders = (markdown) => {
+    if (!markdown || typeof markdown !== 'string') return 'No content available.'
+    return markdown
       .replace(/\[Your Name\]/g, personalInfo.name || 'Candidate')
       .replace(/\[Recipient's Name\]/g, 'Hiring Manager')
   }
@@ -389,22 +399,20 @@ export default function CVBuilder() {
 
   // Generate CV Preview
   const generatePreview = () => {
-    let html = ''
-
-    if (personalInfo.name) html += `<h2 class="text-2xl font-bold text-blue-600 mb-2">${personalInfo.name}</h2>`
-    if (personalInfo.headline) html += `<h4 class="text-lg font-semibold text-gray-700 mb-3">${personalInfo.headline}</h4>`
-
+    let header = ''
+    if (personalInfo.name) header += `## ${personalInfo.name}\n`
+    if (personalInfo.headline) header += `### ${personalInfo.headline}\n`
     const contact = [personalInfo.email, personalInfo.phone, personalInfo.location, personalInfo.linkedin].filter(Boolean)
-    if (contact.length) html += `<p class="text-sm text-gray-600 mb-4">${contact.join(' | ')}</p>`
+    if (contact.length) header += `${contact.join(' | ')}\n`
 
     return (
       <div className="prose prose-sm max-w-none">
-        {html && <div>{ReactHtmlParser(replacePlaceholders(html))}</div>}
+        {header && <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{replacePlaceholders(header)}</ReactMarkdown>}
 
         {summary && (
           <>
             <h3 className="text-lg font-semibold text-gray-800 mt-4 mb-2">Professional Summary</h3>
-            <div className="text-gray-700 mb-4">{ReactHtmlParser(replacePlaceholders(summary.replace(/\n/g, '<br>')))}</div>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{replacePlaceholders(summary)}</ReactMarkdown>
           </>
         )}
 
@@ -417,11 +425,9 @@ export default function CVBuilder() {
                   <div key={index}>
                     <h4 className="font-semibold text-gray-800">{exp.title} at {exp.company}, {exp.dates}</h4>
                     {exp.bullets.length > 0 && (
-                      <ul className="list-disc list-inside text-gray-700 mb-3">
-                        {exp.bullets.map((b, i) => (
-                          <li key={i}>{ReactHtmlParser(replacePlaceholders(b))}</li>
-                        ))}
-                      </ul>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+                        {exp.bullets.map(b => `- ${replacePlaceholders(b)}`).join('\n')}
+                      </ReactMarkdown>
                     )}
                   </div>
                 )
@@ -440,11 +446,9 @@ export default function CVBuilder() {
                   <div key={index}>
                     <h4 className="font-semibold text-gray-800">{edu.degree}, {edu.school}, {edu.dates}</h4>
                     {edu.details.length > 0 && (
-                      <ul className="list-disc list-inside text-gray-700 mb-3">
-                        {edu.details.map((d, i) => (
-                          <li key={i}>{ReactHtmlParser(replacePlaceholders(d))}</li>
-                        ))}
-                      </ul>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+                        {edu.details.map(d => `- ${replacePlaceholders(d)}`).join('\n')}
+                      </ReactMarkdown>
                     )}
                   </div>
                 )
@@ -461,7 +465,7 @@ export default function CVBuilder() {
               {skills.map((s, i) => (
                 <div key={i} className="flex items-center">
                   <span className="w-2 h-2 bg-gray-500 rounded-full mr-2" />
-                  {ReactHtmlParser(replacePlaceholders(s))}
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{replacePlaceholders(s)}</ReactMarkdown>
                 </div>
               ))}
             </div>
@@ -524,7 +528,7 @@ export default function CVBuilder() {
             <Info className="w-4 h-4 mr-2 mt-0.5 text-blue-600" />
             <div>
               <p className="font-semibold text-gray-800">Feedback:</p>
-              <p className="text-gray-700 text-sm">{ReactHtmlParser(feedback.feedback)}</p>
+              <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{feedback.feedback}</ReactMarkdown>
             </div>
           </div>
 
@@ -532,7 +536,8 @@ export default function CVBuilder() {
             <Lightbulb className="w-4 h-4 mr-2 mt-0.5 text-green-600" />
             <div>
               <p className="font-semibold text-gray-800">Suggestion:</p>
-              <p className="text-green-700 text-sm italic">{ReactHtmlParser(feedback.suggestion)}</p>
+              <div className="text-green-700 text-sm italic"> <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} >{feedback.suggestion}</ReactMarkdown></div>
+             
             </div>
           </div>
 
@@ -542,7 +547,7 @@ export default function CVBuilder() {
               <ul className="space-y-1">
                 {feedback.additional_suggestions.map((sug, idx) => (
                   <li key={idx} className="text-xs bg-green-100 p-2 rounded text-green-800">
-                    {ReactHtmlParser(sug)}
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{sug}</ReactMarkdown>
                   </li>
                 ))}
               </ul>
@@ -553,9 +558,8 @@ export default function CVBuilder() {
             <CheckCircle className="w-4 h-4 mr-2 mt-0.5 text-blue-600" />
             <div>
               <p className="font-semibold text-gray-800">Formatted:</p>
-              <div className="text-blue-700 text-sm font-medium">
-                {ReactHtmlParser(feedback.formatted)}
-              </div>
+              <div className="text-blue-700 text-sm font-medium"><ReactMarkdown remarkPlugins={[remarkGfm]} components={components} >{feedback.formatted}</ReactMarkdown></div>
+              
             </div>
           </div>
 
@@ -676,7 +680,7 @@ export default function CVBuilder() {
                               <Textarea
                                 value={summary}
                                 onChange={(e) => handleTextChange('summary', e.target.value, setSummary, 'summary')}
-                                placeholder="Write your professional summary here..."
+                                placeholder="Write your professional summary here... (e.g., **MERN stack developer** with expertise in...) "
                                 className="min-h-[150px] resize-y border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400"
                               />
                               <FeedbackPanel
@@ -723,7 +727,7 @@ export default function CVBuilder() {
                                             <Textarea
                                               value={bullet}
                                               onChange={(e) => updateExpBullet(exp.id, idx, e.target.value)}
-                                              placeholder="Enter bullet point..."
+                                              placeholder="Enter bullet point... (e.g., - Developed **responsive web applications**...)"
                                               className="min-h-[60px] resize-y border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400"
                                             />
                                             <Button
@@ -792,7 +796,7 @@ export default function CVBuilder() {
                                             <Textarea
                                               value={detail}
                                               onChange={(e) => updateEduDetail(edu.id, idx, e.target.value)}
-                                              placeholder="Enter detail/achievement..."
+                                              placeholder="Enter detail/achievement... (e.g., - Graduated with **honors**...)"
                                               className="min-h-[60px] resize-y border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400"
                                             />
                                             <Button
@@ -835,7 +839,7 @@ export default function CVBuilder() {
                                     <Input
                                       value={skill}
                                       onChange={(e) => updateSkill(idx, e.target.value)}
-                                      placeholder="Enter skill..."
+                                      placeholder="Enter skill... (e.g., **JavaScript**)"
                                       className="border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400"
                                     />
                                     <Button
@@ -941,7 +945,7 @@ export default function CVBuilder() {
                           <Textarea
                             value={coverText}
                             onChange={(e) => handleTextChange('cover', e.target.value, setCoverText, 'cover')}
-                            placeholder="Enter your cover letter here...&#10;Example:&#10;Dear Hiring Manager,&#10;I am excited to apply for the position..."
+                            placeholder="Enter your cover letter here... (e.g., Dear **Hiring Manager**, ...)"
                             className="min-h-[400px] resize-y border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent placeholder:text-gray-400"
                           />
                         </div>
@@ -960,7 +964,7 @@ export default function CVBuilder() {
                         <CardTitle className="text-xl">Cover Letter Preview</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="prose prose-sm">{ReactHtmlParser(replacePlaceholders(coverText))}</div>
+                        <div className="prose prose-sm"><ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>{replacePlaceholders(coverText)}</ReactMarkdown></div>
                       </CardContent>
                     </Card>
                   </div>
