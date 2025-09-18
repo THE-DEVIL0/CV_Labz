@@ -486,7 +486,7 @@ const BrandImageGenerator = () => {
                     className="bg-white rounded-2xl overflow-hidden shadow-lg transition-transform hover:scale-105 cursor-pointer w-64"
                     onClick={() => handleImageClick(image)}
                   >
-                    <div className="relative h-48 bg-gray-100 w-full h-full">
+                    <div className="relative h-48 bg-gray-100 w-full">
                       <img
                         src={image.url}
                         alt={image.title}
