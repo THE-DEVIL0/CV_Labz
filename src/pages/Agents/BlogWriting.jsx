@@ -84,9 +84,7 @@ const Agent2 = () => {
           let outputBlog = data.output.output || data.output;
           if (outputBlog.title && outputBlog.html) {
             setFinalBlog({
-              title: outputBlog.title,
-              html: addTailwindClassesToHeadings(outputBlog.html), // Add Tailwind classes to headings
-              images: [outputBlog["Image 1"], outputBlog["Image 2"]].filter(Boolean),
+              html: addTailwindClassesToHeadings(outputBlog.html),
             });
           } else {
             const cleanedOutput = outputBlog.replace(/\\n/g, "\n");
@@ -159,13 +157,7 @@ const Agent2 = () => {
     }
   };
 
-  const handleTitleEdit = (e) => {
-    setFinalBlog((prev) => {
-      if (!prev) return prev;
-      return { ...prev, title: e.target.innerText };
-    });
-  };
-
+ 
   const handleContentEdit = (e) => {
     const newContent = e.target.innerHTML;
     setFinalBlog((prev) => {
@@ -188,25 +180,19 @@ const Agent2 = () => {
   const deleteImage = (index) => {
     setFinalBlog((prev) => {
       if (!prev) return prev;
-      const urlToDelete = prev.images[index];
-      const newImages = prev.images.filter((_, i) => i !== index);
-
-      // Parse HTML and replace the corresponding <img> with a placeholder
       const parser = new DOMParser();
       const doc = parser.parseFromString(prev.html, "text/html");
       const imgs = doc.querySelectorAll("img");
-      const targetImg = Array.from(imgs).find((img) => img.src === urlToDelete);
-      if (targetImg) {
-        targetImg.outerHTML = '<div class="image-placeholder" style="display:none;"></div>';
+      if (imgs[index]) {
+        imgs[index].outerHTML = '<div class="image-placeholder" style="display:none;"></div>';
       }
       const newHtml = doc.body.innerHTML;
-
-      return { ...prev, html: newHtml, images: newImages };
+      return { ...prev, html: newHtml };
     });
   };
 
   const addImage = async () => {
-    if (!selectedFile || finalBlog.images.length >= 2) return;
+    if (!selectedFile) return;
 
     try {
       const dataUrl = await new Promise((resolve, reject) => {
@@ -218,17 +204,18 @@ const Agent2 = () => {
 
       setFinalBlog((prev) => {
         if (!prev) return prev;
-        const newImages = [...prev.images, dataUrl];
-
-        // Parse HTML and insert new <img> at the first placeholder or append
         const parser = new DOMParser();
         const doc = parser.parseFromString(prev.html, "text/html");
-        const placeholder = doc.querySelector(".image-placeholder");
+        const placeholders = doc.querySelectorAll(".image-placeholder");
+        const imgCount = doc.querySelectorAll("img").length;
+        if (imgCount + placeholders.length >= 2) return prev; // Enforce max 2 images
+
         const newImg = doc.createElement("img");
         newImg.src = dataUrl;
-        newImg.alt = `Blog image ${newImages.length}`;
+        newImg.alt = `Blog image ${imgCount + 1}`;
         newImg.className = "my-4 rounded-md w-full h-auto max-h-64 sm:max-h-80 object-cover pointer-events-none select-none";
 
+        const placeholder = doc.querySelector(".image-placeholder");
         if (placeholder) {
           placeholder.outerHTML = newImg.outerHTML;
         } else {
@@ -236,11 +223,11 @@ const Agent2 = () => {
         }
         const newHtml = doc.body.innerHTML;
 
-        return { ...prev, html: newHtml, images: newImages };
+        return { ...prev, html: newHtml };
       });
 
       setSelectedFile(null);
-    } catch(error) {
+    } catch (error) {
       console.error("Error reading file:", error);
       showMessage("error", "Failed to add image.");
     }
@@ -259,9 +246,7 @@ const Agent2 = () => {
       await apiService.apiCall("/blogs/save", {
         method: "POST",
         body: JSON.stringify({
-          title: finalBlog.title,
-          markdown: cleanedHtml,
-          images: [...finalBlog.images],
+          html: cleanedHtml,
         }),
         headers: { "Content-Type": "application/json" },
       });
@@ -325,16 +310,7 @@ const Agent2 = () => {
             </div>
           ) : finalBlog ? (
             <div className="prose max-w-none">
-              {/* Editable Title */}
-              <h1
-                className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4 outline-none focus:bg-gray-50 p-2 rounded"
-                contentEditable
-                suppressContentEditableWarning
-                onBlur={handleTitleEdit}
-              >
-                {finalBlog.title}
-              </h1>
-
+             
               {/* Editable Body */}
               <div
                 className="text-gray-700 leading-relaxed text-sm sm:text-base border p-2 rounded outline-none focus:border-blue-500"
@@ -346,13 +322,17 @@ const Agent2 = () => {
               />
 
               {/* Manage Images Section */}
-              <div className="mt-6">
+              <div className="mt-6 text-center">
                 <h3 className="text-lg font-semibold text-gray-800 mb-3">Manage Images (Max 2)</h3>
-                <div className="flex flex-wrap gap-4">
-                  {finalBlog.images.map((url, index) => (
+                <div className="flex flex-wrap gap-4 justify-center">
+                  {Array.from(
+                    new DOMParser()
+                      .parseFromString(finalBlog.html, "text/html")
+                      .querySelectorAll("img")
+                  ).map((img, index) => (
                     <div key={index} className="flex flex-col items-center">
                       <img
-                        src={url}
+                        src={img.src}
                         alt={`Blog image ${index + 1}`}
                         className="w-32 h-32 object-cover rounded-md shadow"
                       />
@@ -365,8 +345,12 @@ const Agent2 = () => {
                     </div>
                   ))}
                 </div>
-                {finalBlog.images.length < 2 && (
-                  <div className="mt-4 flex items-center">
+                {Array.from(
+                  new DOMParser()
+                    .parseFromString(finalBlog.html, "text/html")
+                    .querySelectorAll("img")
+                ).length < 2 && (
+                  <div className="mt-4 flex justify-center items-center">
                     <input
                       type="file"
                       accept="image/*"
@@ -387,7 +371,7 @@ const Agent2 = () => {
               </div>
 
               {/* Action Buttons */}
-              <div className="mt-6 flex gap-3 flex-wrap">
+              <div className="mt-6 flex gap-3 justify-center">
                 {/* Save Blog */}
                 <button
                   onClick={saveBlog}
