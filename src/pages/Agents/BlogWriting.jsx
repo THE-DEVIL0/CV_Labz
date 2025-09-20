@@ -10,6 +10,7 @@ const Agent2 = () => {
   const [message, setMessage] = useState({ show: false, type: "", text: "" });
   const [showSkeleton, setShowSkeleton] = useState(false);
   const [finalBlog, setFinalBlog] = useState(null);
+  const [selectedFile, setSelectedFile] = useState(null); // For local file upload
   
   // Refs to track polling state and prevent memory leaks
   const pollingRef = useRef(false);
@@ -23,6 +24,32 @@ const Agent2 = () => {
     timeoutRef.current = setTimeout(() => {
       setMessage({ show: false, type: "", text: "" });
     }, duration);
+  };
+
+  // Function to add Tailwind classes to heading tags
+  const addTailwindClassesToHeadings = (html) => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+    
+    // Define Tailwind classes for each heading level
+    const headingClasses = {
+      h1: "text-2xl sm:text-3xl font-bold text-gray-900 mb-4",
+      h2: "text-xl sm:text-2xl font-semibold text-gray-800 mt-6 mb-3",
+      h3: "text-lg sm:text-xl font-medium text-gray-700 mt-5 mb-2",
+      h4: "text-base sm:text-lg font-medium text-gray-600 mt-4 mb-2",
+      h5: "text-sm sm:text-base font-medium text-gray-600 mt-3 mb-2",
+      h6: "text-sm font-medium text-gray-600 mt-3 mb-2",
+    };
+
+    // Apply classes to all heading tags
+    Object.keys(headingClasses).forEach((tag) => {
+      const elements = doc.querySelectorAll(tag);
+      elements.forEach((el) => {
+        el.className = headingClasses[tag];
+      });
+    });
+
+    return doc.body.innerHTML;
   };
 
   const pollForData = async () => {
@@ -58,8 +85,8 @@ const Agent2 = () => {
           if (outputBlog.title && outputBlog.html) {
             setFinalBlog({
               title: outputBlog.title,
-              html: outputBlog.html,
-              images: [outputBlog["Image 1"], outputBlog["Image 2"]],
+              html: addTailwindClassesToHeadings(outputBlog.html), // Add Tailwind classes to headings
+              images: [outputBlog["Image 1"], outputBlog["Image 2"]].filter(Boolean),
             });
           } else {
             const cleanedOutput = outputBlog.replace(/\\n/g, "\n");
@@ -158,15 +185,82 @@ const Agent2 = () => {
     }
   };
 
+  const deleteImage = (index) => {
+    setFinalBlog((prev) => {
+      if (!prev) return prev;
+      const urlToDelete = prev.images[index];
+      const newImages = prev.images.filter((_, i) => i !== index);
+
+      // Parse HTML and replace the corresponding <img> with a placeholder
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(prev.html, "text/html");
+      const imgs = doc.querySelectorAll("img");
+      const targetImg = Array.from(imgs).find((img) => img.src === urlToDelete);
+      if (targetImg) {
+        targetImg.outerHTML = '<div class="image-placeholder" style="display:none;"></div>';
+      }
+      const newHtml = doc.body.innerHTML;
+
+      return { ...prev, html: newHtml, images: newImages };
+    });
+  };
+
+  const addImage = async () => {
+    if (!selectedFile || finalBlog.images.length >= 2) return;
+
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(selectedFile);
+      });
+
+      setFinalBlog((prev) => {
+        if (!prev) return prev;
+        const newImages = [...prev.images, dataUrl];
+
+        // Parse HTML and insert new <img> at the first placeholder or append
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(prev.html, "text/html");
+        const placeholder = doc.querySelector(".image-placeholder");
+        const newImg = doc.createElement("img");
+        newImg.src = dataUrl;
+        newImg.alt = `Blog image ${newImages.length}`;
+        newImg.className = "my-4 rounded-md w-full h-auto max-h-64 sm:max-h-80 object-cover pointer-events-none select-none";
+
+        if (placeholder) {
+          placeholder.outerHTML = newImg.outerHTML;
+        } else {
+          doc.body.appendChild(newImg);
+        }
+        const newHtml = doc.body.innerHTML;
+
+        return { ...prev, html: newHtml, images: newImages };
+      });
+
+      setSelectedFile(null);
+    } catch(error) {
+      console.error("Error reading file:", error);
+      showMessage("error", "Failed to add image.");
+    }
+  };
+
   const saveBlog = async () => {
     if (!finalBlog) return;
-    console.log(finalBlog)
     try {
+      // Clean up placeholders before saving
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(finalBlog.html, "text/html");
+      const placeholders = doc.querySelectorAll(".image-placeholder");
+      placeholders.forEach((ph) => ph.remove());
+      const cleanedHtml = doc.body.innerHTML;
+
       await apiService.apiCall("/blogs/save", {
         method: "POST",
         body: JSON.stringify({
           title: finalBlog.title,
-          markdown: finalBlog.html,
+          markdown: cleanedHtml,
           images: [...finalBlog.images],
         }),
         headers: { "Content-Type": "application/json" },
@@ -191,6 +285,7 @@ const Agent2 = () => {
     setInputText("");
     setIsLoading(false);
     setShowSkeleton(false);
+    setSelectedFile(null);
   };
 
   const renderContent = () => {
@@ -232,7 +327,7 @@ const Agent2 = () => {
             <div className="prose max-w-none">
               {/* Editable Title */}
               <h1
-                className="text-xl sm:text-2xl font-bold text-gray-900 mb-4 outline-none focus:bg-gray-50 p-2 rounded"
+                className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4 outline-none focus:bg-gray-50 p-2 rounded"
                 contentEditable
                 suppressContentEditableWarning
                 onBlur={handleTitleEdit}
@@ -249,22 +344,50 @@ const Agent2 = () => {
                 onBlur={handleContentEdit}
                 onKeyDown={handleKeyDown}
               />
-{/* 
-              Locked Images
-              {finalBlog.images?.length > 0 && (
-                <div className="mt-4">
-                  {finalBlog.images.map((img, index) => (
-                    <img
-                      key={index}
-                      src={img}
-                      alt={`Blog image ${index + 1}`}
-                      className="my-4 rounded-md w-full h-auto max-h-64 sm:max-h-80 object-cover pointer-events-none select-none"
-                    />
+
+              {/* Manage Images Section */}
+              <div className="mt-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-3">Manage Images (Max 2)</h3>
+                <div className="flex flex-wrap gap-4">
+                  {finalBlog.images.map((url, index) => (
+                    <div key={index} className="flex flex-col items-center">
+                      <img
+                        src={url}
+                        alt={`Blog image ${index + 1}`}
+                        className="w-32 h-32 object-cover rounded-md shadow"
+                      />
+                      <button
+                        onClick={() => deleteImage(index)}
+                        className="mt-2 bg-red-600 text-white px-3 py-1 rounded-md hover:bg-red-700 transition-colors text-sm"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   ))}
-                </div> */}
+                </div>
+                {finalBlog.images.length < 2 && (
+                  <div className="mt-4 flex items-center">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => setSelectedFile(e.target.files[0])}
+                      className="w-full max-w-md p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                    />
+                    <button
+                      onClick={addImage}
+                      disabled={!selectedFile}
+                      className={`ml-3 px-4 py-2 rounded-md text-white text-sm transition-colors ${
+                        !selectedFile ? "bg-green-300 cursor-not-allowed" : "bg-green-600 hover:bg-green-700"
+                      }`}
+                    >
+                      Add Image
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* Action Buttons */}
-              <div className="mt-4 flex gap-3 flex-wrap">
+              <div className="mt-6 flex gap-3 flex-wrap">
                 {/* Save Blog */}
                 <button
                   onClick={saveBlog}
