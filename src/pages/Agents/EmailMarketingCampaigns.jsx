@@ -14,14 +14,16 @@ const Agent1 = () => {
   const [isDashboardLoading, setIsDashboardLoading] = useState(false);
   const [showDashboard, setShowDashboard] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState(null);
-  // Email content state
-  const [emailBodyA, setEmailBodyA] = useState({ subject: 'Loading...', body: 'Loading...', clicks: 0 });
-  const [emailBodyB, setEmailBodyB] = useState({ subject: 'Loading...', body: 'Loading...', clicks: 0 });
+  // Email content state (editable)
+  const [emailA, setEmailA] = useState({ subject: '', body: '', htmlBody: '', clicks: 0 });
+  const [emailB, setEmailB] = useState({ subject: '', body: '', htmlBody: '', clicks: 0 });
   const [isLoading, setIsLoading] = useState(false);
   const [webhookMessage, setWebhookMessage] = useState({ show: false, type: '', text: '' });
   const [dataLoaded, setDataLoaded] = useState(false);
   const [showSkeleton, setShowSkeleton] = useState(false);
   const [isPolling, setIsPolling] = useState(false);
+  // State for success screen
+  const [showSuccessScreen, setShowSuccessScreen] = useState(false);
   // Ref for polling control
   const pollingRef = useRef({ email: false, dashboard: false });
   const API_BASE = "https://delightful-passion-production.up.railway.app/emails";
@@ -60,21 +62,21 @@ const Agent1 = () => {
   const resetInterface = () => {
     setCampaignDetails({ campaignName: '', email: '' });
     setSelectedFile(null);
-    setEmailBodyA({ subject: 'Loading...', body: 'Loading...', clicks: 0 });
-    setEmailBodyB({ subject: 'Loading...', body: 'Loading...', clicks: 0 });
+    setEmailA({ subject: '', body: '', htmlBody: '', clicks: 0 });
+    setEmailB({ subject: '', body: '', htmlBody: '', clicks: 0 });
     setDataLoaded(false);
     setShowSkeleton(false);
     setIsPolling(false);
     setSelectedCampaign(null);
     setShowDashboard(false);
+    setShowSuccessScreen(false);
     pollingRef.current.email = false;
     console.log('[Reset Interface] Interface reset');
   };
 
-  // Copy text to clipboard (strip HTML tags for plain text)
-  const copyToClipboard = (html) => {
-    const plainText = html.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-    navigator.clipboard.writeText(plainText)
+  // Copy text to clipboard
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text)
       .then(() => showWebhookMessage('success', 'Content copied to clipboard!'))
       .catch(() => showWebhookMessage('error', 'Failed to copy content.'));
   };
@@ -92,6 +94,74 @@ const Agent1 = () => {
   const replacePlaceholders = (html) => {
     if (!html || typeof html !== 'string') return 'No content available.';
     return html.replace(/\[Recipient's Name\]/g, 'Customer');
+  };
+
+  // Convert HTML to plain text for editing, preserving paragraph breaks
+  const htmlToPlainText = (html) => {
+    if (!html) return '';
+    const tempDiv = document.createElement('div');
+    tempDiv.innerHTML = html;
+    // Get all paragraph-like elements (p, div, etc.)
+    const paragraphs = Array.from(tempDiv.querySelectorAll('p, div')).map(p => p.textContent.trim()).filter(text => text);
+    // Join paragraphs with double newlines for textarea display
+    return paragraphs.join('\n\n');
+  };
+
+  // Update HTML content with new plain text
+  const updateHtmlWithPlainText = (html, newPlainText) => {
+    if (!html || !newPlainText) return html || '';
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const body = doc.body;
+    // Split plain text into paragraphs based on double newlines
+    const paragraphs = newPlainText.split('\n\n').filter(p => p.trim());
+    // Clear existing content
+    body.innerHTML = '';
+    // Rebuild HTML structure
+    paragraphs.forEach((para, index) => {
+      const p = doc.createElement('p');
+      p.textContent = para.trim();
+      // Preserve link if it exists in original HTML
+      if (html.includes('<a') && para.includes('yourinterviewguide.com')) {
+        p.innerHTML = para.replace(
+          'yourinterviewguide.com',
+          '<a href="https://www.yourinterviewguide.com">yourinterviewguide.com</a>'
+        );
+      }
+      body.appendChild(p);
+      // Add line break for readability, except for the last paragraph
+      if (index < paragraphs.length - 1) {
+        body.appendChild(doc.createElement('br'));
+      }
+    });
+    return body.innerHTML;
+  };
+
+  // Handle email content changes
+  const handleEmailChange = (version, field, value) => {
+    if (version === 'A') {
+      setEmailA((prev) => {
+        if (field === 'body') {
+          return {
+            ...prev,
+            body: value,
+            htmlBody: updateHtmlWithPlainText(prev.htmlBody, value),
+          };
+        }
+        return { ...prev, [field]: value };
+      });
+    } else {
+      setEmailB((prev) => {
+        if (field === 'body') {
+          return {
+            ...prev,
+            body: value,
+            htmlBody: updateHtmlWithPlainText(prev.htmlBody, value),
+          };
+        }
+        return { ...prev, [field]: value };
+      });
+    }
   };
 
   // Poll for email data
@@ -113,7 +183,7 @@ const Agent1 = () => {
           if (data?.message === 'No data available') {
             attempts++;
             if (attempts < maxAttempts && pollingRef.current.email) {
-              setTimeout(checkEmailData, 20000);
+              setTimeout(checkEmailData, 10000);
             } else {
               setShowSkeleton(false);
               setDataLoaded(true);
@@ -124,9 +194,11 @@ const Agent1 = () => {
             return;
           }
           const email = data[0] || {};
-          setEmailBodyA({
+          const cleanBody = email.body?.replace(/```html\n|\n```/g, '') || 'No content available.';
+          setEmailA({
             subject: email.subject || 'No Subject',
-            body: replacePlaceholders(email.body) || 'No content available.',
+            body: htmlToPlainText(cleanBody),
+            htmlBody: cleanBody,
             clicks: email.clicks || 0,
           });
           setShowSkeleton(false);
@@ -149,7 +221,7 @@ const Agent1 = () => {
           if (dataA?.message === 'No data available' || dataB?.message === 'No data available') {
             attempts++;
             if (attempts < maxAttempts && pollingRef.current.email) {
-              setTimeout(checkEmailData, 20000);
+              setTimeout(checkEmailData, 10000);
             } else {
               setShowSkeleton(false);
               setDataLoaded(true);
@@ -159,15 +231,21 @@ const Agent1 = () => {
             }
             return;
           }
-          setEmailBodyA({
-            subject: dataA[0]?.Subject || 'No Subject',
-            body: replacePlaceholders(dataA[0]?.Body) || 'No content available.',
-            clicks: dataA[0]?.clicks || 0,
+          const emailAData = dataA[0]?.['email-a'] || {};
+          const emailBData = dataB[0]?.['email-b'] || {};
+          const cleanBodyA = emailAData.body?.replace(/```html\n|\n```/g, '') || 'No content available.';
+          const cleanBodyB = emailBData.body?.replace(/```html\n|\n```/g, '') || 'No content available.';
+          setEmailA({
+            subject: emailAData.subject || 'No Subject',
+            body: htmlToPlainText(cleanBodyA),
+            htmlBody: cleanBodyA,
+            clicks: emailAData.clicks || 0,
           });
-          setEmailBodyB({
-            subject: dataB[0]?.Subject || 'No Subject',
-            body: replacePlaceholders(dataB[0]?.Body) || 'No content available.',
-            clicks: dataB[0]?.clicks || 0,
+          setEmailB({
+            subject: emailBData.subject || 'No Subject',
+            body: htmlToPlainText(cleanBodyB),
+            htmlBody: cleanBodyB,
+            clicks: emailBData.clicks || 0,
           });
           setShowSkeleton(false);
           setDataLoaded(true);
@@ -179,12 +257,12 @@ const Agent1 = () => {
         console.error('[Email Polling] Error:', error.message);
         attempts++;
         if (attempts < maxAttempts && pollingRef.current.email) {
-          setTimeout(checkEmailData, 20000);
+          setTimeout(checkEmailData, 10000);
         } else {
           setShowSkeleton(false);
-          setEmailBodyA({ subject: 'No Subject', body: 'Error loading data.', clicks: 0 });
+          setEmailA({ subject: 'No Subject', body: 'Error loading data.', htmlBody: 'Error loading data.', clicks: 0 });
           if (activeTab === 'bulk') {
-            setEmailBodyB({ subject: 'No Subject', body: 'Error loading data.', clicks: 0 });
+            setEmailB({ subject: 'No Subject', body: 'Error loading data.', htmlBody: 'Error loading data.', clicks: 0 });
           }
           setDataLoaded(true);
           setIsPolling(false);
@@ -216,7 +294,7 @@ const Agent1 = () => {
         if (data?.message === 'Waiting for all dashboard data to be collected') {
           attempts++;
           if (attempts < maxAttempts && pollingRef.current.dashboard) {
-            setTimeout(checkDashboardData, 20000);
+            setTimeout(checkDashboardData, 10000);
           } else {
             setCampaigns([]);
             setShowDashboard(true);
@@ -226,7 +304,6 @@ const Agent1 = () => {
           }
           return;
         }
-        // Validate campaign data
         const validCampaigns = data.filter(camp =>
           camp &&
           typeof camp === 'object' &&
@@ -244,7 +321,7 @@ const Agent1 = () => {
         } else {
           attempts++;
           if (attempts < maxAttempts && pollingRef.current.dashboard) {
-            setTimeout(checkDashboardData, 20000);
+            setTimeout(checkDashboardData, 10000);
           } else {
             setCampaigns([]);
             setShowDashboard(true);
@@ -257,7 +334,7 @@ const Agent1 = () => {
         console.error('[Dashboard Polling] Error:', error.message);
         attempts++;
         if (attempts < maxAttempts && pollingRef.current.dashboard) {
-          setTimeout(checkDashboardData, 20000);
+          setTimeout(checkDashboardData, 10000);
         } else {
           setCampaigns([]);
           setShowDashboard(true);
@@ -272,14 +349,11 @@ const Agent1 = () => {
     checkDashboardData();
   };
 
-  // Send email campaign request
-  const sendToBackend = async () => {
-    if (
-      (activeTab === 'single' && (!campaignDetails.campaignName || !campaignDetails.email)) ||
-      (activeTab === 'bulk' && (!campaignDetails.campaignName || !selectedFile))
-    ) {
+  // Send generate email request
+  const generateEmails = async () => {
+    if (!campaignDetails.campaignName || (activeTab === 'single' && !campaignDetails.email) || (activeTab === 'bulk' && !selectedFile)) {
       showWebhookMessage('error', 'Please fill in all required fields.');
-      console.warn('[Send Request] Validation failed: Missing required fields');
+      console.warn('[Generate Request] Validation failed: Missing required fields');
       return;
     }
     setIsLoading(true);
@@ -287,24 +361,21 @@ const Agent1 = () => {
     setDataLoaded(false);
     try {
       let response;
+      const payload = {
+        campaignName: campaignDetails.campaignName,
+      };
       if (activeTab === 'single') {
-        const payload = {
-          campaignName: campaignDetails.campaignName,
-          email: campaignDetails.email,
-        };
-        response = await fetch(`${API_BASE}/send-single-email`, {
+        response = await fetch(`${API_BASE}/generate-single-email`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
           credentials: 'include',
         });
       } else {
-        const formData = new FormData();
-        formData.append('campaignName', campaignDetails.campaignName);
-        formData.append('csvFile', selectedFile);
-        response = await fetch(`${API_BASE}/send-bulk-emails`, {
+        response = await fetch(`${API_BASE}/generate-bulk-emails`, {
           method: 'POST',
-          body: formData,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
           credentials: 'include',
         });
       }
@@ -315,10 +386,64 @@ const Agent1 = () => {
         throw new Error(`Request failed with status ${response.status}`);
       }
     } catch (error) {
-      console.error('[Send Request] Error:', error.message);
+      console.error('[Generate Request] Error:', error.message);
       showWebhookMessage('error', 'Failed to send request. Please try again.');
       setShowSkeleton(false);
       setIsLoading(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Send final emails after editing
+  const sendFinalEmails = async () => {
+    if (activeTab === 'single' && (!emailA.subject || !emailA.htmlBody)) {
+      showWebhookMessage('error', 'Please finalize the email content.');
+      return;
+    }
+    if (activeTab === 'bulk' && (!emailA.subject || !emailA.htmlBody || !emailB.subject || !emailB.htmlBody)) {
+      showWebhookMessage('error', 'Please finalize both email versions.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      let response;
+      if (activeTab === 'single') {
+        const payload = {
+          campaignName: campaignDetails.campaignName,
+          email: campaignDetails.email,
+          subject: emailA.subject,
+          body: emailA.htmlBody, // Send HTML content
+        };
+        response = await fetch(`${API_BASE}/send-single-final`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          credentials: 'include',
+        });
+      } else {
+        const formData = new FormData();
+        formData.append('campaignName', campaignDetails.campaignName);
+        formData.append('csvFile', selectedFile);
+        formData.append('subjectA', emailA.subject);
+        formData.append('bodyA', emailA.htmlBody); // Send HTML content
+        formData.append('subjectB', emailB.subject);
+        formData.append('bodyB', emailB.htmlBody); // Send HTML content
+        response = await fetch(`${API_BASE}/send-bulk-final`, {
+          method: 'POST',
+          body: formData,
+          credentials: 'include',
+        });
+      }
+      if (response.ok) {
+        showWebhookMessage('success', activeTab === 'single' ? 'Email has been sent!' : 'Emails have been sent to the recipients in the CSV!');
+        setShowSuccessScreen(true);
+      } else {
+        throw new Error(`Send failed with status ${response.status}`);
+      }
+    } catch (error) {
+      console.error('[Send Final] Error:', error.message);
+      showWebhookMessage('error', 'Failed to send emails. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -328,6 +453,7 @@ const Agent1 = () => {
   const fetchCampaigns = async () => {
     setIsDashboardLoading(true);
     setShowDashboard(true);
+    setShowSuccessScreen(false);
     try {
       const response = await fetch(`${API_BASE}/dashboard-data-req`, {
         method: 'POST',
@@ -349,7 +475,6 @@ const Agent1 = () => {
   const groupCampaigns = (campaigns) => {
     const grouped = {};
     campaigns.forEach((camp) => {
-      // Skip invalid campaign objects
       if (!camp || !camp.campaignkey || !camp.campaign || !camp.version || !camp.subject) {
         console.warn('[Group Campaigns] Skipping invalid campaign:', camp);
         return;
@@ -370,13 +495,13 @@ const Agent1 = () => {
     }));
   };
 
-  // Get subject preview (truncate to 50 chars)
+  // Get subject preview
   const getSubjectPreview = (subject) => {
     if (!subject) return 'No Subject';
     return subject.length > 50 ? `${subject.slice(0, 47)}...` : subject;
   };
 
-  // Get body preview (strip HTML and truncate to 100 chars)
+  // Get body preview
   const getBodyPreview = (body) => {
     if (!body) return 'No Content';
     const text = body.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
@@ -434,8 +559,39 @@ const Agent1 = () => {
           </p>
         </div>
 
+        {/* Success Screen */}
+        {showSuccessScreen && (
+          <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
+            <div className="text-center">
+              <svg className="w-16 h-16 mx-auto mb-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <h2 className="text-2xl font-semibold text-gray-800 mb-4">
+                {activeTab === 'single' ? 'Email Sent Successfully!' : 'Emails Sent Successfully!'}
+              </h2>
+              <p className="text-gray-600 mb-6">
+                {activeTab === 'single' ? 'Your email has been sent.' : 'Your emails have been sent to the recipients in the CSV.'}
+              </p>
+              <div className="space-x-4">
+                <button
+                  onClick={resetInterface}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Start New Campaign
+                </button>
+                <button
+                  onClick={fetchCampaigns}
+                  className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  View Existing Campaigns
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Campaign Dashboard */}
-        {showDashboard && !selectedCampaign && (
+        {showDashboard && !selectedCampaign && !showSuccessScreen && (
           <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-semibold text-gray-800">Campaigns Dashboard</h2>
@@ -486,7 +642,7 @@ const Agent1 = () => {
         )}
 
         {/* Campaign Details View */}
-        {showDashboard && selectedCampaign && (
+        {showDashboard && selectedCampaign && !showSuccessScreen && (
           <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-semibold text-gray-800">{selectedCampaign.campaignName || 'Unnamed Campaign'}</h2>
@@ -523,7 +679,7 @@ const Agent1 = () => {
                     </div>
                     <p className="text-gray-600 mb-4">Clicks: {selectedCampaign.versions[0]?.clicks || 0}</p>
                     <button
-                      onClick={() => copyToClipboard(selectedCampaign.voices[0]?.body || '')}
+                      onClick={() => copyToClipboard(htmlToPlainText(selectedCampaign.versions[0]?.body || ''))}
                       className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                     >
                       Copy Content
@@ -542,7 +698,7 @@ const Agent1 = () => {
                         </div>
                         <p className="text-gray-600 mb-4">Clicks: {data.clicks || 0}</p>
                         <button
-                          onClick={() => copyToClipboard(data.body || '')}
+                          onClick={() => copyToClipboard(htmlToPlainText(data.body || ''))}
                           className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                         >
                           Copy Content
@@ -559,9 +715,12 @@ const Agent1 = () => {
         )}
 
         {/* Campaign Input Form */}
-        {!showDashboard && (
+        {!showDashboard && !showSuccessScreen && (
           <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Start Your Campaign</h2>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-semibold text-gray-800">Start Your Campaign</h2>
+              
+            </div>
             <div className="flex justify-center mb-6">
               <div className="inline-flex bg-white rounded-full p-1 shadow-sm">
                 <button
@@ -626,7 +785,7 @@ const Agent1 = () => {
                   {isDashboardLoading ? 'Loading Campaigns...' : 'Show Campaigns'}
                 </button>
                 <button
-                  onClick={dataLoaded && !showSkeleton ? resetInterface : sendToBackend}
+                  onClick={dataLoaded && !showSkeleton ? resetInterface : generateEmails}
                   disabled={isLoading || isPolling}
                   className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400"
                 >
@@ -637,10 +796,18 @@ const Agent1 = () => {
           </div>
         )}
 
-        {/* Generated Email Content */}
-        {dataLoaded && !showSkeleton && !showDashboard && (
+        {/* Generated Email Content (Editable) */}
+        {dataLoaded && !showSkeleton && !showDashboard && !showSuccessScreen && (
           <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Generated Email Content</h2>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-semibold text-gray-800">Finalize Email Content</h2>
+              <button
+                onClick={resetInterface}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Start New Campaign
+              </button>
+            </div>
             <div className="text-center mb-6">
               <div className="inline-block bg-blue-50 text-blue-800 px-4 py-2 rounded-xl text-sm font-medium">
                 <div className="font-semibold mb-1">Results for:</div>
@@ -650,14 +817,27 @@ const Agent1 = () => {
             <div className={activeTab === 'single' ? 'max-w-2xl mx-auto' : 'grid md:grid-cols-2 gap-8'}>
               <div className="border border-gray-200 rounded-xl shadow-sm p-6 bg-gradient-to-br from-blue-50 to-white">
                 <h3 className="text-lg font-semibold text-blue-800 mb-2">{activeTab === 'single' ? 'Email Content' : 'Version A'}</h3>
-                <p className="text-gray-700 mb-2 font-medium break-words"><strong>Subject:</strong> {emailBodyA.subject || 'No Subject'}</p>
-                <div className="bg-white p-6 rounded-lg mb-4 prose prose-sm max-w-none max-h-96 overflow-y-auto shadow-inner border border-gray-100">
-                  {ReactHtmlParser(replacePlaceholders(emailBodyA.body || 'No Content'))}
+                <div className="mb-2">
+                  <label className="text-gray-700 font-medium">Subject:</label>
+                  <input
+                    type="text"
+                    value={emailA.subject}
+                    onChange={(e) => handleEmailChange('A', 'subject', e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
-                <p className="text-gray-600 mb-4">Clicks: {emailBodyA.clicks || 0}</p>
+                <div className="mb-4">
+                  <label className="text-gray-700 font-medium">Body:</label>
+                  <textarea
+                    value={emailA.body}
+                    onChange={(e) => handleEmailChange('A', 'body', e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 h-64"
+                    placeholder="Enter email content"
+                  />
+                </div>
                 <button
-                  onClick={() => copyToClipboard(emailBodyA.body)}
-                  className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  onClick={() => copyToClipboard(emailA.body)}
+                  className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 mb-2"
                 >
                   Copy Content
                 </button>
@@ -665,27 +845,57 @@ const Agent1 = () => {
               {activeTab === 'bulk' && (
                 <div className="border border-gray-200 rounded-xl shadow-sm p-6 bg-gradient-to-br from-green-50 to-white">
                   <h3 className="text-lg font-semibold text-green-800 mb-2">Version B</h3>
-                  <p className="text-gray-700 mb-2 font-medium break-words"><strong>Subject:</strong> {emailBodyB.subject || 'No Subject'}</p>
-                  <div className="bg-white p-6 rounded-lg mb-4 prose prose-sm max-w-none max-h-96 overflow-y-auto shadow-inner border border-gray-100">
-                    {ReactHtmlParser(replacePlaceholders(emailBodyB.body || 'No Content'))}
+                  <div className="mb-2">
+                    <label className="text-gray-700 font-medium">Subject:</label>
+                    <input
+                      type="text"
+                      value={emailB.subject}
+                      onChange={(e) => handleEmailChange('B', 'subject', e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
-                  <p className="text-gray-600 mb-4">Clicks: {emailBodyB.clicks || 0}</p>
+                  <div className="mb-4">
+                    <label className="text-gray-700 font-medium">Body:</label>
+                    <textarea
+                      value={emailB.body}
+                      onChange={(e) => handleEmailChange('B', 'body', e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 h-64"
+                      placeholder="Enter email content"
+                    />
+                  </div>
                   <button
-                    onClick={() => copyToClipboard(emailBodyB.body)}
-                    className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    onClick={() => copyToClipboard(emailB.body)}
+                    className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 mb-2"
                   >
                     Copy Content
                   </button>
                 </div>
               )}
             </div>
+            <div className="text-center mt-6">
+              <button
+                onClick={sendFinalEmails}
+                disabled={isLoading}
+                className="bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400"
+              >
+                {isLoading ? 'Sending...' : activeTab === 'single' ? 'Send Email' : 'Send Emails'}
+              </button>
+            </div>
           </div>
         )}
 
         {/* Loading Skeleton */}
-        {showSkeleton && (
+        {showSkeleton && !showSuccessScreen && (
           <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
-            <h2 className="text-2xl font-semibold text-gray-800 mb-6">Generated Email Content</h2>
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-semibold text-gray-800">Generated Email Content</h2>
+              <button
+                onClick={resetInterface}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Start New Campaign
+              </button>
+            </div>
             <div className={activeTab === 'single' ? 'max-w-2xl mx-auto' : 'grid md:grid-cols-2 gap-8'}>
               <div className="border border-gray-200 rounded-xl shadow-sm p-6">
                 <h3 className="text-lg font-semibold text-blue-800 mb-4">{activeTab === 'single' ? 'Email Content' : 'Version A'}</h3>
