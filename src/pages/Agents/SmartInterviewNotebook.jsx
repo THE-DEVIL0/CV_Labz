@@ -11,6 +11,7 @@ const SmartInterviewNotebook = () => {
     companyName: "",
     position: "",
     seniorityLevel: "",
+    userId:"12345"
   });
 
   const [generatedNotes, setGeneratedNotes] = useState("");
@@ -100,6 +101,7 @@ const SmartInterviewNotebook = () => {
             companyName: "",
             position: "",
             seniorityLevel: "",
+            userId:"12345"
           });
           setShowSkeleton(false);
           setDataLoaded(true);
@@ -161,6 +163,7 @@ const SmartInterviewNotebook = () => {
             companyName: interviewDetails.companyName,
             position: interviewDetails.position,
             seniorityLevel: interviewDetails.seniorityLevel,
+            userId: interviewDetails.userId
           }),
         });
 
@@ -169,13 +172,14 @@ const SmartInterviewNotebook = () => {
           "success",
           "Interview details sent! Generating notebook..."
         );
+           // Now poll for the generated output
+      await pollForInterviewData();
       } catch (webhookError) {
         console.log("Webhook error:", webhookError);
-        showMessage("info", "Generating notebook directly...");
+        showMessage("info", "Error");
       }
 
-      // Now poll for the generated output
-      await pollForInterviewData();
+   
     } catch (error) {
       console.error("Error generating interview notebook:", error);
       setShowSkeleton(false);

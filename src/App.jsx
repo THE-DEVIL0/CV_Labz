@@ -23,6 +23,7 @@ import ProtectedRoute from "./components/ProtectedRoute"
 import RealCvBuilder from "./pages/Agents/RealCvBuilder"
 import ImageGenrator from "./pages/Agents/BrandImageGenrator"
 import VideoGenerator from "./pages/Agents/VideoGenerator"
+import TemplateEmail from "./pages/Agents/TemplateEmail"
 // import SessionStatus from './components/SessionStatus';
 
 const AppContent = () => {
@@ -34,9 +35,8 @@ const AppContent = () => {
       <div className="flex flex-1">
         {isAuthenticated && <Sidebar />}
         <div
-          className={`flex-1 transition-all duration-300 ${
-            isAuthenticated ? "ml-16 lg:ml-16 lg:data-[sidebar-expanded=true]:ml-64" : ""
-          }`}
+          className={`flex-1 transition-all duration-300 ${isAuthenticated ? "ml-16 lg:ml-16 lg:data-[sidebar-expanded=true]:ml-64" : ""
+            }`}
           data-sidebar-expanded="true"
         >
           <Routes>
@@ -56,6 +56,13 @@ const AppContent = () => {
                   <EmailMarketingCampaigns />
                 </ProtectedRoute>
               }
+            />
+            <Route path="/template-email"
+              element={
+                <ProtectedRoute>
+                  <TemplateEmail />
+                </ProtectedRoute>}
+
             />
             <Route
               path="/video-generator"

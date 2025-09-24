@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ReactHtmlParser from 'html-react-parser';
 
 const Agent1 = () => {
+  const [emailType, setEmailType] = useState(null); // null, 'text', or 'template'
+  const navigate = useNavigate();
+
   // State for campaign input
   const [campaignDetails, setCampaignDetails] = useState({
     campaignName: '',
@@ -27,6 +31,15 @@ const Agent1 = () => {
   // Ref for polling control
   const pollingRef = useRef({ email: false, dashboard: false });
   const API_BASE = "https://delightful-passion-production.up.railway.app/emails";
+
+  // Handle email type selection
+  const handleEmailTypeChange = (type) => {
+    setEmailType(type);
+    if (type === 'template') {
+      navigate('/template-email');
+    }
+    console.debug(`[Email Type Change] Selected ${type}`);
+  };
 
   // Handle input changes
   const handleInputChange = (e) => {
@@ -70,8 +83,9 @@ const Agent1 = () => {
     setSelectedCampaign(null);
     setShowDashboard(false);
     setShowSuccessScreen(false);
+    setEmailType(null);
     pollingRef.current.email = false;
-    console.log('[Reset Interface] Interface reset');
+    console.log('[Reset Interface] Interface reset to email type selection');
   };
 
   // Copy text to clipboard
@@ -85,7 +99,13 @@ const Agent1 = () => {
   const handleTabChange = (tab) => {
     if (tab !== activeTab) {
       setActiveTab(tab);
-      resetInterface();
+      setCampaignDetails({ campaignName: '', email: '' });
+      setSelectedFile(null);
+      setEmailA({ subject: '', body: '', htmlBody: '', clicks: 0 });
+      setEmailB({ subject: '', body: '', htmlBody: '', clicks: 0 });
+      setDataLoaded(false);
+      setShowSkeleton(false);
+      setIsPolling(false);
       console.debug(`[Tab Change] Switched to ${tab} tab with UI reset`);
     }
   };
@@ -101,9 +121,7 @@ const Agent1 = () => {
     if (!html) return '';
     const tempDiv = document.createElement('div');
     tempDiv.innerHTML = html;
-    // Get all paragraph-like elements (p, div, etc.)
     const paragraphs = Array.from(tempDiv.querySelectorAll('p, div')).map(p => p.textContent.trim()).filter(text => text);
-    // Join paragraphs with double newlines for textarea display
     return paragraphs.join('\n\n');
   };
 
@@ -113,15 +131,11 @@ const Agent1 = () => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, 'text/html');
     const body = doc.body;
-    // Split plain text into paragraphs based on double newlines
     const paragraphs = newPlainText.split('\n\n').filter(p => p.trim());
-    // Clear existing content
     body.innerHTML = '';
-    // Rebuild HTML structure
     paragraphs.forEach((para, index) => {
       const p = doc.createElement('p');
       p.textContent = para.trim();
-      // Preserve link if it exists in original HTML
       if (html.includes('<a') && para.includes('yourinterviewguide.com')) {
         p.innerHTML = para.replace(
           'yourinterviewguide.com',
@@ -129,7 +143,6 @@ const Agent1 = () => {
         );
       }
       body.appendChild(p);
-      // Add line break for readability, except for the last paragraph
       if (index < paragraphs.length - 1) {
         body.appendChild(doc.createElement('br'));
       }
@@ -166,7 +179,7 @@ const Agent1 = () => {
 
   // Poll for email data
   const pollForEmailData = async () => {
-    const maxAttempts = 15; // 5 minutes (15 * 20 seconds)
+    const maxAttempts = 15;
     let attempts = 0;
     const checkEmailData = async () => {
       if (!pollingRef.current.email) {
@@ -278,7 +291,7 @@ const Agent1 = () => {
 
   // Poll for dashboard data
   const pollForDashboardData = async () => {
-    const maxAttempts = 15; // 5 minutes (15 * 20 seconds)
+    const maxAttempts = 15;
     let attempts = 0;
     const checkDashboardData = async () => {
       if (!pollingRef.current.dashboard) {
@@ -291,7 +304,7 @@ const Agent1 = () => {
         if (!response.ok) throw new Error(`API error - Status: ${response.status}`);
         const data = await response.json();
         console.debug('[Dashboard Polling] Response:', data);
-        if (data?.message === 'Waiting for all dashboard data to be collected') {
+        if (data?.message === 'No data available') {
           attempts++;
           if (attempts < maxAttempts && pollingRef.current.dashboard) {
             setTimeout(checkDashboardData, 10000);
@@ -304,14 +317,39 @@ const Agent1 = () => {
           }
           return;
         }
-        const validCampaigns = data.filter(camp =>
-          camp &&
-          typeof camp === 'object' &&
-          camp.version &&
-          camp.campaignkey &&
-          camp.campaign &&
-          camp.subject
-        );
+        // Process single_emails and bulk_campaigns
+        const validCampaigns = [];
+        data.forEach(item => {
+          if (item.single_emails) {
+            item.single_emails.forEach(email => {
+              validCampaigns.push({
+                type: 'single_email',
+                campaignkey: email.campaignkey,
+                campaign: email.campaign,
+                subject: email.subject,
+                body: email.body,
+                clicks: email.clicks || 0,
+                userId: email.userId,
+              });
+            });
+          }
+          if (item.bulk_campaigns) {
+            item.bulk_campaigns.forEach(campaign => {
+              campaign.versions.forEach(version => {
+                validCampaigns.push({
+                  type: 'bulk_campaign',
+                  campaignkey: campaign.campaignkey,
+                  campaign: campaign.campaign,
+                  version: version.version,
+                  subject: version.subject,
+                  body: version.body,
+                  clicks: version.clicks || 0,
+                  userId: campaign.userId,
+                });
+              });
+            });
+          }
+        });
         if (validCampaigns.length > 0) {
           setCampaigns(validCampaigns);
           setShowDashboard(true);
@@ -413,7 +451,7 @@ const Agent1 = () => {
           campaignName: campaignDetails.campaignName,
           email: campaignDetails.email,
           subject: emailA.subject,
-          body: emailA.htmlBody, // Send HTML content
+          body: emailA.htmlBody,
         };
         response = await fetch(`${API_BASE}/send-single-final`, {
           method: 'POST',
@@ -426,9 +464,9 @@ const Agent1 = () => {
         formData.append('campaignName', campaignDetails.campaignName);
         formData.append('csvFile', selectedFile);
         formData.append('subjectA', emailA.subject);
-        formData.append('bodyA', emailA.htmlBody); // Send HTML content
+        formData.append('bodyA', emailA.htmlBody);
         formData.append('subjectB', emailB.subject);
-        formData.append('bodyB', emailB.htmlBody); // Send HTML content
+        formData.append('bodyB', emailB.htmlBody);
         response = await fetch(`${API_BASE}/send-bulk-final`, {
           method: 'POST',
           body: formData,
@@ -475,7 +513,7 @@ const Agent1 = () => {
   const groupCampaigns = (campaigns) => {
     const grouped = {};
     campaigns.forEach((camp) => {
-      if (!camp || !camp.campaignkey || !camp.campaign || !camp.version || !camp.subject) {
+      if (!camp || !camp.campaignkey || !camp.campaign) {
         console.warn('[Group Campaigns] Skipping invalid campaign:', camp);
         return;
       }
@@ -484,14 +522,14 @@ const Agent1 = () => {
         grouped[key] = {
           campaignName: camp.campaign,
           versions: [],
-          isSingle: camp.version === 'single',
+          isSingle: camp.type === 'single_email',
         };
       }
       grouped[key].versions.push(camp);
     });
     return Object.values(grouped).filter(group => group.versions.length > 0).map((group) => ({
       ...group,
-      winner: group.isSingle ? null : group.versions.reduce((prev, curr) => (prev.clicks || 0) > (curr.clicks || 0) ? prev : curr, {}),
+      winner: group.isSingle ? null : group.versions.reduce((prev, curr) => (prev.clicks || 0) > (curr.clicks || 0) ? prev : curr, group.versions[0]),
     }));
   };
 
@@ -559,6 +597,82 @@ const Agent1 = () => {
           </p>
         </div>
 
+        {/* Email Type Selection */}
+        {!emailType && !showDashboard && !showSuccessScreen && (
+          <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
+            <h2 className="text-2xl font-semibold text-gray-800 mb-6 text-center">Choose Your Email Campaign Type</h2>
+            <div className="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+              {/* Text Email Card */}
+              <div className="bg-white rounded-3xl shadow-lg p-8 border border-gray-200 hover:shadow-xl transition-shadow">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4">Text Email</h3>
+                <p className="text-gray-600 mb-6">
+                  Create and customize your own email content with full control over the message.
+                </p>
+                <ul className="text-gray-600 mb-6 space-y-2">
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Write custom email subject and body
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    A/B testing for bulk campaigns
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-blue-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Track clicks and performance
+                  </li>
+                </ul>
+                <button
+                  onClick={() => handleEmailTypeChange('text')}
+                  className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Start Text Email Campaign
+                </button>
+              </div>
+
+              {/* Template Email Card */}
+              <div className="bg-white rounded-3xl shadow-lg p-8 border border-gray-200 hover:shadow-xl transition-shadow">
+                <h3 className="text-xl font-semibold text-gray-800 mb-4">Template Email</h3>
+                <p className="text-gray-600 mb-6">
+                  Use AI-generated HTML email templates for professional, ready-to-send campaigns.
+                </p>
+                <ul className="text-gray-600 mb-6 space-y-2">
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-purple-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Crafted professional templates
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-purple-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Send to single or bulk recipients
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-purple-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Monitor campaign performance
+                  </li>
+                </ul>
+                <button
+                  onClick={() => handleEmailTypeChange('template')}
+                  className="w-full bg-purple-600 text-white px-4 py-3 rounded-lg hover:bg-purple-700 transition-colors"
+                >
+                  Start Template Email Campaign
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Success Screen */}
         {showSuccessScreen && (
           <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
@@ -595,12 +709,20 @@ const Agent1 = () => {
           <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-2xl font-semibold text-gray-800">Campaigns Dashboard</h2>
-              <button
-                onClick={resetInterface}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Start New Campaign
-              </button>
+              <div className="space-x-4">
+                <button
+                  onClick={resetInterface}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Start New Campaign
+                </button>
+                <button
+                  onClick={fetchCampaigns}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  Refresh Campaigns
+                </button>
+              </div>
             </div>
             {isDashboardLoading ? (
               <div className="text-center text-gray-500">Loading campaigns...</div>
@@ -715,11 +837,24 @@ const Agent1 = () => {
         )}
 
         {/* Campaign Input Form */}
-        {!showDashboard && !showSuccessScreen && (
+        {emailType === 'text' && !showDashboard && !showSuccessScreen && !dataLoaded && !showSkeleton && (
           <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-semibold text-gray-800">Start Your Campaign</h2>
-              
+              <h2 className="text-2xl font-semibold text-gray-800">Start Your Text Email Campaign</h2>
+              <div className="space-x-4">
+                <button
+                  onClick={resetInterface}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Start New Campaign
+                </button>
+                <button
+                  onClick={fetchCampaigns}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  View Existing Campaigns
+                </button>
+              </div>
             </div>
             <div className="flex justify-center mb-6">
               <div className="inline-flex bg-white rounded-full p-1 shadow-sm">
@@ -743,53 +878,63 @@ const Agent1 = () => {
             </div>
             <div className="max-w-md mx-auto">
               <div className="space-y-4">
-                <textarea
-                  name="campaignName"
-                  value={campaignDetails.campaignName}
-                  onChange={handleInputChange}
-                  disabled={dataLoaded && !showSkeleton}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none min-h-[48px] disabled:bg-gray-100"
-                  placeholder="Describe your campaign: target audience, goals, product/service..."
-                  style={{ height: 'auto', minHeight: '48px' }}
-                  onInput={(e) => {
-                    e.target.style.height = 'auto';
-                    e.target.style.height = `${e.target.scrollHeight}px`;
-                  }}
-                />
-                {activeTab === 'single' ? (
-                  <input
-                    type="email"
-                    name="email"
-                    value={campaignDetails.email}
+                <div>
+                  <label htmlFor="campaignName" className="block text-sm font-medium text-gray-700">
+                    Campaign Description
+                  </label>
+                  <textarea
+                    name="campaignName"
+                    id="campaignName"
+                    value={campaignDetails.campaignName}
                     onChange={handleInputChange}
-                    disabled={dataLoaded && !showSkeleton}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                    placeholder="Enter your email address"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none min-h-[48px]"
+                    placeholder="Describe your campaign: target audience, goals, product/service..."
+                    style={{ height: 'auto', minHeight: '48px' }}
+                    onInput={(e) => {
+                      e.target.style.height = 'auto';
+                      e.target.style.height = `${e.target.scrollHeight}px`;
+                    }}
                   />
+                </div>
+                {activeTab === 'single' ? (
+                  <div>
+                    <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+                      Email Address
+                    </label>
+                    <input
+                      type="email"
+                      name="email"
+                      id="email"
+                      value={campaignDetails.email}
+                      onChange={handleInputChange}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Enter recipient's email"
+                    />
+                  </div>
                 ) : (
-                  <input
-                    type="file"
-                    accept=".csv"
-                    onChange={handleFileChange}
-                    disabled={dataLoaded && !showSkeleton}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                  />
+                  <div>
+                    <label htmlFor="csvFile" className="block text-sm font-medium text-gray-700">
+                      Upload CSV File
+                    </label>
+                    <input
+                      type="file"
+                      name="csvFile"
+                      id="csvFile"
+                      accept=".csv"
+                      onChange={handleFileChange}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                    {selectedFile && <p className="mt-2 text-sm text-gray-600">Selected: {selectedFile.name}</p>}
+                  </div>
                 )}
               </div>
-              <div className="text-center mt-6 space-x-4">
+              <div className="text-center mt-6">
                 <button
-                  onClick={fetchCampaigns}
-                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
-                  disabled={isDashboardLoading}
-                >
-                  {isDashboardLoading ? 'Loading Campaigns...' : 'Show Campaigns'}
-                </button>
-                <button
-                  onClick={dataLoaded && !showSkeleton ? resetInterface : generateEmails}
+                  onClick={generateEmails}
                   disabled={isLoading || isPolling}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400"
+                  className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-400"
                 >
-                  {isLoading ? 'Generating...' : isPolling ? 'Waiting for Data...' : dataLoaded && !showSkeleton ? 'Start New Campaign' : 'Generate Email Content'}
+                  {isLoading ? 'Generating...' : isPolling ? 'Waiting for Data...' : 'Generate Email Content'}
                 </button>
               </div>
             </div>
@@ -797,16 +942,24 @@ const Agent1 = () => {
         )}
 
         {/* Generated Email Content (Editable) */}
-        {dataLoaded && !showSkeleton && !showDashboard && !showSuccessScreen && (
+        {emailType === 'text' && dataLoaded && !showSkeleton && !showDashboard && !showSuccessScreen && (
           <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-semibold text-gray-800">Finalize Email Content</h2>
-              <button
-                onClick={resetInterface}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Start New Campaign
-              </button>
+              <h2 className="text-2xl font-semibold text-gray-800">Finalize Text Email Content</h2>
+              <div className="space-x-4">
+                <button
+                  onClick={resetInterface}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Start New Campaign
+                </button>
+                <button
+                  onClick={fetchCampaigns}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  View Existing Campaigns
+                </button>
+              </div>
             </div>
             <div className="text-center mb-6">
               <div className="inline-block bg-blue-50 text-blue-800 px-4 py-2 rounded-xl text-sm font-medium">
@@ -885,16 +1038,24 @@ const Agent1 = () => {
         )}
 
         {/* Loading Skeleton */}
-        {showSkeleton && !showSuccessScreen && (
+        {emailType === 'text' && showSkeleton && !showSuccessScreen && (
           <div className="bg-white rounded-3xl shadow-lg p-8 mb-8">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-semibold text-gray-800">Generated Email Content</h2>
-              <button
-                onClick={resetInterface}
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Start New Campaign
-              </button>
+              <h2 className="text-2xl font-semibold text-gray-800">Generated Text Email Content</h2>
+              <div className="space-x-4">
+                <button
+                  onClick={resetInterface}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Start New Campaign
+                </button>
+                <button
+                  onClick={fetchCampaigns}
+                  className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  View Existing Campaigns
+                </button>
+              </div>
             </div>
             <div className={activeTab === 'single' ? 'max-w-2xl mx-auto' : 'grid md:grid-cols-2 gap-8'}>
               <div className="border border-gray-200 rounded-xl shadow-sm p-6">

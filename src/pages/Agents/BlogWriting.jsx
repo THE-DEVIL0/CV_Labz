@@ -10,12 +10,24 @@ const Agent2 = () => {
   const [message, setMessage] = useState({ show: false, type: "", text: "" });
   const [showSkeleton, setShowSkeleton] = useState(false);
   const [finalBlog, setFinalBlog] = useState(null);
-  const [selectedFile, setSelectedFile] = useState(null); // New state for local file upload
-  
-  
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [blogType, setBlogType] = useState("");
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [imageFiles, setImageFiles] = useState([]); // Store raw file objects
+
+  // Blog types options
+  const blogTypes = [
+    "Interview tips",
+    "Personal branding",
+    "Career Growth and Development",
+    "Cv and resume writing",
+    "Job Search strategies"
+  ];
+
   // Refs to track polling state and prevent memory leaks
   const pollingRef = useRef(false);
   const timeoutRef = useRef(null);
+  const dropdownRef = useRef(null);
 
   const showMessage = (type, text, duration = 3000) => {
     setMessage({ show: true, type, text });
@@ -27,11 +39,21 @@ const Agent2 = () => {
     }, duration);
   };
 
- const addTailwindClassesToHeadings = (html) => {
+  // Handle click outside to close dropdown
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const addTailwindClassesToHeadings = (html) => {
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, "text/html");
     
-    // Define Tailwind classes for each heading level
     const headingClasses = {
       h1: "text-2xl sm:text-3xl font-bold text-gray-900 mb-4",
       h2: "text-xl sm:text-2xl font-semibold text-gray-800 mt-6 mb-3",
@@ -41,7 +63,6 @@ const Agent2 = () => {
       h6: "text-sm font-medium text-gray-600 mt-3 mb-2",
     };
 
-    // Apply classes to all heading tags
     Object.keys(headingClasses).forEach((tag) => {
       const elements = doc.querySelectorAll(tag);
       elements.forEach((el) => {
@@ -51,7 +72,6 @@ const Agent2 = () => {
 
     return doc.body.innerHTML;
   };
-
 
   const pollForData = async () => {
     let attempts = 0;
@@ -81,14 +101,14 @@ const Agent2 = () => {
           return;
         }
         
-
         if (data?.output && pollingRef.current) {
           let outputBlog = data.output.output || data.output;
           if (outputBlog.title && outputBlog.html) {
             setFinalBlog({
               title: outputBlog.title,
               html: addTailwindClassesToHeadings(outputBlog.html),
-              images: [outputBlog["Image 1"], outputBlog["Image 2"]].filter(Boolean), // Filter out undefined if fewer images
+              images: [outputBlog["Image 1"], outputBlog["Image 2"]].filter(Boolean),
+              type: blogType
             });
           } else {
             const cleanedOutput = outputBlog.replace(/\\n/g, "\n");
@@ -119,7 +139,6 @@ const Agent2 = () => {
     await checkData();
   };
 
-  // Cleanup function
   useEffect(() => {
     return () => {
       pollingRef.current = false;
@@ -134,8 +153,11 @@ const Agent2 = () => {
       showMessage("error", "Please enter some input");
       return;
     }
+    if (!blogType) {
+      showMessage("error", "Please select a blog type");
+      return;
+    }
     
-    // Stop any existing polling
     pollingRef.current = false;
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -161,7 +183,6 @@ const Agent2 = () => {
     }
   };
 
- 
   const handleContentEdit = (e) => {
     const newContent = e.target.innerHTML;
     setFinalBlog((prev) => {
@@ -171,7 +192,6 @@ const Agent2 = () => {
   };
 
   const handleKeyDown = (e) => {
-    // Prevent deleting images with Backspace/Delete
     const selection = window.getSelection();
     if (
       (e.key === "Backspace" || e.key === "Delete") &&
@@ -186,8 +206,8 @@ const Agent2 = () => {
       if (!prev) return prev;
       const urlToDelete = prev.images[index];
       const newImages = prev.images.filter((_, i) => i !== index);
+      const newImageFiles = imageFiles.filter((_, i) => i !== index);
 
-      // Parse HTML and replace the corresponding <img> with a placeholder
       const parser = new DOMParser();
       const doc = parser.parseFromString(prev.html, "text/html");
       const imgs = doc.querySelectorAll("img");
@@ -197,6 +217,7 @@ const Agent2 = () => {
       }
       const newHtml = doc.body.innerHTML;
 
+      setImageFiles(newImageFiles);
       return { ...prev, html: newHtml, images: newImages };
     });
   };
@@ -216,7 +237,6 @@ const Agent2 = () => {
         if (!prev) return prev;
         const newImages = [...prev.images, dataUrl];
 
-        // Parse HTML and insert new <img> at the first placeholder or append
         const parser = new DOMParser();
         const doc = parser.parseFromString(prev.html, "text/html");
         const placeholder = doc.querySelector(".image-placeholder");
@@ -235,6 +255,7 @@ const Agent2 = () => {
         return { ...prev, html: newHtml, images: newImages };
       });
 
+      setImageFiles((prev) => [...prev, selectedFile]);
       setSelectedFile(null);
     } catch (error) {
       console.error("Error reading file:", error);
@@ -245,19 +266,48 @@ const Agent2 = () => {
   const saveBlog = async () => {
     if (!finalBlog) return;
     try {
-      // Clean up placeholders before saving
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(finalBlog.html, "text/html");
-      const placeholders = doc.querySelectorAll(".image-placeholder");
-      placeholders.forEach((ph) => ph.remove());
-      const cleanedHtml = doc.body.innerHTML;
+      let updatedHtml = finalBlog.html;
+
+      if (imageFiles.length > 0) {
+        const formData = new FormData();
+        imageFiles.forEach((file) => {
+         formData.append("images", file);
+
+        });
+
+        const uploadResponse = await apiService.apiCall("/blogs/upload-images", {
+          method: "POST",
+          body: formData,
+        });
+
+        const { urls } = uploadResponse.data;
+
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(updatedHtml, "text/html");
+        const imgs = doc.querySelectorAll("img");
+        imgs.forEach((img, index) => {
+          if (urls[index]) {
+            img.src = urls[index];
+          }
+        });
+
+        const placeholders = doc.querySelectorAll(".image-placeholder");
+        placeholders.forEach((ph) => ph.remove());
+
+        updatedHtml = doc.body.innerHTML;
+      } else {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(updatedHtml, "text/html");
+        const placeholders = doc.querySelectorAll(".image-placeholder");
+        placeholders.forEach((ph) => ph.remove());
+        updatedHtml = doc.body.innerHTML;
+      }
 
       await apiService.apiCall("/blogs/save", {
         method: "POST",
         body: JSON.stringify({
-          
-          html: cleanedHtml,
-          
+          html: updatedHtml,
+          type: finalBlog.type
         }),
         headers: { "Content-Type": "application/json" },
       });
@@ -270,7 +320,6 @@ const Agent2 = () => {
   };
 
   const generateNewBlog = () => {
-    // Stop any existing polling
     pollingRef.current = false;
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
@@ -279,9 +328,12 @@ const Agent2 = () => {
     setFinalBlog(null);
     setOutputText("");
     setInputText("");
+    setBlogType("");
     setIsLoading(false);
     setShowSkeleton(false);
     setSelectedFile(null);
+    setImageFiles([]);
+    setIsDropdownOpen(false);
   };
 
   const renderContent = () => {
@@ -298,7 +350,6 @@ const Agent2 = () => {
   return (
     <div className="px-4 sm:px-6 md:px-8 lg:px-12 py-6 bg-gray-100 min-h-screen">
       <div className="max-w-3xl mx-auto">
-        {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">
             Blog Generator
@@ -308,7 +359,6 @@ const Agent2 = () => {
           </p>
         </div>
 
-        {/* Output Section */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <h2 className="text-lg sm:text-xl font-semibold text-gray-800 mb-4">
             Blog Output
@@ -321,9 +371,12 @@ const Agent2 = () => {
             </div>
           ) : finalBlog ? (
             <div className="prose max-w-none">
-            
+              <div className="mb-4">
+                <span className="inline-block bg-gradient-to-r from-blue-500 to-blue-700 text-white text-xs sm:text-sm font-semibold px-3 py-1 rounded-full shadow-sm">
+                  {finalBlog.type}
+                </span>
+              </div>
 
-              {/* Editable Body */}
               <div
                 className="text-gray-700 leading-relaxed text-sm sm:text-base border p-2 rounded outline-none focus:border-blue-500"
                 contentEditable
@@ -333,7 +386,6 @@ const Agent2 = () => {
                 onKeyDown={handleKeyDown}
               />
 
-              {/* Manage Images Section */}
               <div className="mt-6">
                 <h3 className="text-lg font-semibold text-gray-800 mb-3">Manage Images (Max 2)</h3>
                 <div className="flex flex-wrap gap-4">
@@ -374,17 +426,13 @@ const Agent2 = () => {
                 )}
               </div>
 
-              {/* Action Buttons */}
               <div className="mt-6 flex gap-3 flex-wrap">
-                {/* Save Blog */}
                 <button
                   onClick={saveBlog}
                   className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors text-sm sm:text-base"
                 >
                   Save Blog
                 </button>
-
-                {/* Generate New Blog */}
                 <button
                   onClick={generateNewBlog}
                   className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors text-sm sm:text-base"
@@ -400,12 +448,52 @@ const Agent2 = () => {
           )}
         </div>
 
-        {/* Input Section */}
         {!finalBlog && (
           <div className="bg-white rounded-lg shadow-md p-6">
             <h2 className="text-lg sm:text-xl font-semibold text-gray-800 mb-4">
               Your Input
             </h2>
+            <div className="mb-4 relative" ref={dropdownRef}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Blog Type
+              </label>
+              <button
+                type="button"
+                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                className="w-full p-3 bg-white border border-gray-300 rounded-md text-left text-sm sm:text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 flex justify-between items-center shadow-sm hover:bg-gray-50 transition-colors"
+                aria-haspopup="listbox"
+                aria-expanded={isDropdownOpen}
+              >
+                <span>{blogType || "Select a blog type"}</span>
+                <svg
+                  className={`w-5 h-5 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {isDropdownOpen && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-auto">
+                  {blogTypes.map((type) => (
+                    <div
+                      key={type}
+                      onClick={() => {
+                        setBlogType(type);
+                        setIsDropdownOpen(false);
+                      }}
+                      className="px-4 py-2 text-sm sm:text-base text-gray-900 hover:bg-blue-50 hover:text-blue-700 cursor-pointer transition-colors"
+                      role="option"
+                      aria-selected={blogType === type}
+                    >
+                      {type}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <textarea
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
@@ -429,7 +517,6 @@ const Agent2 = () => {
           </div>
         )}
 
-        {/* Toast Notification */}
         {message.show && (
           <div
             className={`fixed bottom-4 right-4 p-3 rounded-md shadow-md text-white text-sm sm:text-base z-50 transition-opacity ${

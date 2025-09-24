@@ -5,6 +5,7 @@ const AIInterviewSimulator = () => {
   const [interviewSettings, setInterviewSettings] = useState({
     job_role: '',
     job_description: '',
+    userId:"12345"
   });
   const [backendJobRole, setBackendJobRole] = useState('');
   const [backendJobDescription, setBackendJobDescription] = useState('');
@@ -35,7 +36,7 @@ const AIInterviewSimulator = () => {
 
   const resetInterface = () => {
     setSimulationState('idle');
-    setInterviewSettings({ job_role: '', job_description: '' });
+    setInterviewSettings({ job_role: '', job_description: '',userId:"12345"});
     setBackendJobRole('');
     setBackendJobDescription('');
     setQuestions([]);
