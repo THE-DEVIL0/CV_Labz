@@ -1,18 +1,17 @@
 const API_BASE_URL = 'https://delightful-passion-production.up.railway.app';
 
-
 class ApiService {
   constructor() {
     this.baseURL = API_BASE_URL;
   }
 
-  // Generic fetch wrapper with credentials
   async fetchWithCredentials(endpoint, options = {}) {
     const url = `${this.baseURL}${endpoint}`;
     const config = {
-      credentials: 'include', // This is crucial for cookie handling
+      credentials: 'include',
       headers: {
-        'Content-Type': 'application/json',
+        // Only set Content-Type for non-FormData requests
+        ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
         ...options.headers,
       },
       ...options,
@@ -21,7 +20,6 @@ class ApiService {
     try {
       const response = await fetch(url, config);
       
-      // Handle different response types
       const contentType = response.headers.get('content-type');
       let data;
       
@@ -42,7 +40,6 @@ class ApiService {
     }
   }
 
-  // Authentication methods
   async login(credentials) {
     return this.fetchWithCredentials('/login', {
       method: 'POST',
@@ -69,12 +66,10 @@ class ApiService {
     });
   }
 
-  // Generic API call for other endpoints
   async apiCall(endpoint, options = {}) {
     return this.fetchWithCredentials(endpoint, options);
   }
 }
 
-// Create and export a singleton instance
 const apiService = new ApiService();
-export default apiService; 
+export default apiService;

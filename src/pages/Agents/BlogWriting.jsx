@@ -1,21 +1,21 @@
 import React, { useState, useEffect, useRef } from "react";
 import apiService from "../../services/api";
 import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm"; // For GitHub Flavored Markdown
+import remarkGfm from "remark-gfm";
 
 const Agent2 = () => {
   const [inputText, setInputText] = useState("");
   const [outputText, setOutputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState({ show: false, type: "", text: "" });
   const [showSkeleton, setShowSkeleton] = useState(false);
   const [finalBlog, setFinalBlog] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [blogType, setBlogType] = useState("");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [imageFiles, setImageFiles] = useState([]); // Store raw file objects
+  const [imageFiles, setImageFiles] = useState([]);
 
-  // Blog types options
   const blogTypes = [
     "Interview tips",
     "Personal branding",
@@ -24,7 +24,6 @@ const Agent2 = () => {
     "Job Search strategies"
   ];
 
-  // Refs to track polling state and prevent memory leaks
   const pollingRef = useRef(false);
   const timeoutRef = useRef(null);
   const dropdownRef = useRef(null);
@@ -39,7 +38,6 @@ const Agent2 = () => {
     }, duration);
   };
 
-  // Handle click outside to close dropdown
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -225,6 +223,13 @@ const Agent2 = () => {
   const addImage = async () => {
     if (!selectedFile || finalBlog.images.length >= 2) return;
 
+    const maxSize = 2 * 1024 * 1024; // 2MB
+    if (selectedFile.size > maxSize) {
+      showMessage("error", "Image file is too large. Maximum size is 2MB.");
+      setSelectedFile(null);
+      return;
+    }
+
     try {
       const dataUrl = await new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -265,20 +270,24 @@ const Agent2 = () => {
 
   const saveBlog = async () => {
     if (!finalBlog) return;
+    setIsSaving(true);
     try {
       let updatedHtml = finalBlog.html;
 
       if (imageFiles.length > 0) {
         const formData = new FormData();
         imageFiles.forEach((file) => {
-         formData.append("images", file);
-
+          formData.append("images", file);
         });
 
         const uploadResponse = await apiService.apiCall("/blogs/upload-images", {
           method: "POST",
           body: formData,
         });
+
+        if (!uploadResponse.data.urls) {
+          throw new Error("No URLs returned from image upload");
+        }
 
         const { urls } = uploadResponse.data;
 
@@ -315,7 +324,9 @@ const Agent2 = () => {
       showMessage("success", "Blog saved successfully!");
     } catch (error) {
       console.error("Save error:", error);
-      showMessage("error", "Failed to save blog.");
+      showMessage("error", error.message.includes("upload") ? "Failed to upload images. Ensure images are under 2MB." : "Failed to save blog.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -429,9 +440,12 @@ const Agent2 = () => {
               <div className="mt-6 flex gap-3 flex-wrap">
                 <button
                   onClick={saveBlog}
-                  className="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors text-sm sm:text-base"
+                  disabled={isSaving}
+                  className={`bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition-colors text-sm sm:text-base ${
+                    isSaving ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
                 >
-                  Save Blog
+                  {isSaving ? "Saving..." : "Save Blog"}
                 </button>
                 <button
                   onClick={generateNewBlog}
