@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import apiService from "../../services/api";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+const API_BASE_URL = "https://delightful-passion-production.up.railway.app";
 
 const Agent2 = () => {
   const [inputText, setInputText] = useState("");
@@ -80,8 +81,22 @@ const Agent2 = () => {
       if (!pollingRef.current) return;
 
       try {
-        const response = await apiService.apiCall("/blogs/blog-output");
-        const data = response.data;
+        const response = await fetch(`${API_BASE_URL}/blogs/blog-output`, {
+          method: "GET",
+          credentials: "include",
+        });
+
+        const contentType = response.headers.get("content-type");
+        let data;
+        if (contentType && contentType.includes("application/json")) {
+          data = await response.json();
+        } else {
+          data = await response.text();
+        }
+
+        if (!response.ok) {
+          throw new Error(data.message || `HTTP error! status: ${response.status}`);
+        }
 
         if (data?.message === "No output available") {
           attempts++;
@@ -167,11 +182,27 @@ const Agent2 = () => {
     setFinalBlog(null);
     
     try {
-      await apiService.apiCall("/blogs/blog-input", {
+      const response = await fetch(`${API_BASE_URL}/blogs/blog-input`, {
         method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({ message: inputText }),
-        headers: { "Content-Type": "application/json" },
       });
+
+      const contentType = response.headers.get("content-type");
+      let data;
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        data = await response.text();
+      }
+
+      if (!response.ok) {
+        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      }
+
       await pollForData();
     } catch (error) {
       console.error("Error sending input", error);
@@ -260,7 +291,11 @@ const Agent2 = () => {
         return { ...prev, html: newHtml, images: newImages };
       });
 
-      setImageFiles((prev) => [...prev, selectedFile]);
+      setImageFiles((prev) => {
+        const newFiles = [...prev, selectedFile];
+        console.log("[addImage] Updated imageFiles:", newFiles.map(f => f.name));
+        return newFiles;
+      });
       setSelectedFile(null);
     } catch (error) {
       console.error("Error reading file:", error);
@@ -272,31 +307,53 @@ const Agent2 = () => {
     if (!finalBlog) return;
     setIsSaving(true);
     try {
+      console.log("[saveBlog] Starting save process, imageFiles:", imageFiles.map(f => f.name));
       let updatedHtml = finalBlog.html;
+      let updatedImages = [...finalBlog.images];
 
       if (imageFiles.length > 0) {
         const formData = new FormData();
-        imageFiles.forEach((file) => {
+        imageFiles.forEach((file, index) => {
+          console.log(`[saveBlog] Adding file ${index + 1}:`, file.name);
           formData.append("images", file);
         });
 
-        const uploadResponse = await apiService.apiCall("/blogs/upload-images", {
+        const uploadResponse = await fetch(`${API_BASE_URL}/blogs/upload-images`, {
           method: "POST",
+          credentials: "include",
           body: formData,
         });
 
-        if (!uploadResponse.data.urls) {
-          throw new Error("No URLs returned from image upload");
+        const contentType = uploadResponse.headers.get("content-type");
+        let uploadData;
+        if (contentType && contentType.includes("application/json")) {
+          uploadData = await uploadResponse.json();
+        } else {
+          uploadData = await uploadResponse.text();
         }
 
-        const { urls } = uploadResponse.data;
+        if (!uploadResponse.ok) {
+          throw new Error(uploadData.message || `HTTP error! status: ${uploadResponse.status}`);
+        }
+
+        console.log("[saveBlog] Upload response:", uploadData);
+
+        if (!uploadData.urls || uploadData.urls.length < imageFiles.length) {
+          throw new Error(`Expected ${imageFiles.length} URLs, received ${uploadData.urls?.length || 0}`);
+        }
+
+        const { urls } = uploadData;
 
         const parser = new DOMParser();
         const doc = parser.parseFromString(updatedHtml, "text/html");
         const imgs = doc.querySelectorAll("img");
         imgs.forEach((img, index) => {
           if (urls[index]) {
+            console.log(`[saveBlog] Replacing img ${index + 1} src with:`, urls[index]);
             img.src = urls[index];
+            updatedImages[index] = urls[index];
+          } else {
+            console.warn(`[saveBlog] No URL for img ${index + 1}, leaving unchanged`);
           }
         });
 
@@ -310,21 +367,40 @@ const Agent2 = () => {
         const placeholders = doc.querySelectorAll(".image-placeholder");
         placeholders.forEach((ph) => ph.remove());
         updatedHtml = doc.body.innerHTML;
+        updatedImages = []; // No images to save
       }
 
-      await apiService.apiCall("/blogs/save", {
+      console.log("[saveBlog] Saving blog with:", { html: updatedHtml, type: finalBlog.type, title: finalBlog.title, images: updatedImages });
+      const saveResponse = await fetch(`${API_BASE_URL}/blogs/save`, {
         method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           html: updatedHtml,
-          type: finalBlog.type
+          type: finalBlog.type,
+          title: finalBlog.title,
+          images: updatedImages
         }),
-        headers: { "Content-Type": "application/json" },
       });
+
+      const saveContentType = saveResponse.headers.get("content-type");
+      let saveData;
+      if (saveContentType && saveContentType.includes("application/json")) {
+        saveData = await saveResponse.json();
+      } else {
+        saveData = await saveResponse.text();
+      }
+
+      if (!saveResponse.ok) {
+        throw new Error(saveData.message || `HTTP error! status: ${saveResponse.status}`);
+      }
 
       showMessage("success", "Blog saved successfully!");
     } catch (error) {
-      console.error("Save error:", error);
-      showMessage("error", error.message.includes("upload") ? "Failed to upload images. Ensure images are under 2MB." : "Failed to save blog.");
+      console.error("[saveBlog] Error:", error);
+      showMessage("error", error.message.includes("upload") ? "Failed to upload images. Ensure all images are under 2MB." : "Failed to save blog.");
     } finally {
       setIsSaving(false);
     }
